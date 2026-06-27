@@ -2096,9 +2096,24 @@ const AdminDashboard = () => {
                             </div>
 
                             {imageSrc && (
-                              <div className="w-full h-40 rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
-                                <img src={imageSrc} alt="Broadcast Attachment" className="w-full h-full object-cover animate-fade-in" />
-                              </div>
+                              imageSrc.toLowerCase().includes('.pdf') ? (
+                                <a
+                                  href={imageSrc}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-3 p-4 bg-rose-50 hover:bg-rose-100/70 border border-rose-100 rounded-xl text-rose-700 font-bold transition-all"
+                                >
+                                  <FileText className="w-8 h-8 text-rose-500 shrink-0" />
+                                  <div className="text-left">
+                                    <p className="text-xs font-extrabold truncate max-w-[200px]">View Attachment (PDF)</p>
+                                    <span className="text-[9px] text-rose-400 font-semibold">Click to open document</span>
+                                  </div>
+                                </a>
+                              ) : (
+                                <div className="w-full h-40 rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
+                                  <img src={imageSrc} alt="Broadcast Attachment" className="w-full h-full object-cover animate-fade-in" />
+                                </div>
+                              )
                             )}
 
                             <p className="text-slate-600 text-xs leading-relaxed font-medium whitespace-pre-wrap">
@@ -3040,10 +3055,10 @@ const AdminDashboard = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-500 uppercase tracking-wider block">Attach Image (Optional)</label>
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Attach Image or PDF (Optional)</label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,.pdf"
                   onChange={(e) => setBroadcastForm((prev) => ({ ...prev, image: e.target.files[0] }))}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
                 />
