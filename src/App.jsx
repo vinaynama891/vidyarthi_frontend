@@ -12,6 +12,9 @@ import StudentDashboard from './pages/Admin/StudentDashboard';
 import TeacherDashboard from './pages/Admin/TeacherDashboard';
 import EnquiryPage from './pages/Landing/EnquiryPage';
 import StudentLogin from './pages/Student/StudentLogin';
+import StudyMaterialPage from './pages/Landing/StudyMaterialPage';
+import NotesDashboard from './pages/Student/NotesDashboard';
+import CourseDetailPage from './pages/Landing/CourseDetailPage';
 
 
 // Protected Route Guard Component
@@ -39,8 +42,20 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     if (user.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
     if (user.role === 'teacher') return <Navigate to="/teacher/dashboard" replace />;
-    if (user.role === 'student') return <Navigate to="/student/dashboard" replace />;
+    if (user.role === 'student') {
+      return <Navigate to={user.studentType === 'NotesOnly' ? "/student/notes-dashboard" : "/student/dashboard"} replace />;
+    }
     return <Navigate to="/" replace />;
+  }
+
+  // Redirection guard for different student types
+  if (user && user.role === 'student') {
+    if (user.studentType === 'NotesOnly' && location.pathname === '/student/dashboard') {
+      return <Navigate to="/student/notes-dashboard" replace />;
+    }
+    if (user.studentType !== 'NotesOnly' && location.pathname === '/student/notes-dashboard') {
+      return <Navigate to="/student/dashboard" replace />;
+    }
   }
 
   return children;
@@ -58,6 +73,8 @@ function App() {
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/student/login" element={<StudentLogin />} />
             <Route path="/enquiry" element={<EnquiryPage />} />
+            <Route path="/study-material" element={<StudyMaterialPage />} />
+            <Route path="/course/:courseName" element={<CourseDetailPage />} />
 
             {/* Protected Admin Routes */}
             <Route
@@ -75,6 +92,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['student']}>
                   <StudentDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/student/notes-dashboard"
+              element={
+                <ProtectedRoute allowedRoles={['student']}>
+                  <NotesDashboard />
                 </ProtectedRoute>
               }
             />

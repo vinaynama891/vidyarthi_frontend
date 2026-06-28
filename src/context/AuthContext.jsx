@@ -43,13 +43,14 @@ export const AuthProvider = ({ children }) => {
         email: data.email,
         role: data.role,
         studentId: data.studentId,
-        teacherId: data.teacherId
+        teacherId: data.teacherId,
+        studentType: data.studentType
       };
       localStorage.setItem('user', JSON.stringify(userProfile));
 
       setToken(data.token);
       setUser(userProfile);
-      return { success: true, role: data.role };
+      return { success: true, role: data.role, studentType: data.studentType };
     } catch (error) {
       console.error('Login error:', error);
       return { success: false, message: error.message };

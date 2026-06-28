@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   GraduationCap,
   Award,
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL, useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Eye, EyeOff, Lock, X, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Lock, X, Loader2, Video, MoreVertical } from 'lucide-react';
 import logo from '../../assets/logo.png';
 import heroImage from '../../assets/Hero_Image.png';
 
@@ -30,19 +30,42 @@ import heroImage from '../../assets/Hero_Image.png';
 
 const LandingPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [courses, setCourses] = useState([]);
   const [achievements, setAchievements] = useState([]);
+  const [demoClasses, setDemoClasses] = useState([]);
+  const [activeOffer, setActiveOffer] = useState(null);
+  const [showOfferPopup, setShowOfferPopup] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [stats, setStats] = useState({ totalStudents: 1500, years: '10+', rate: '98%' });
   const [loading, setLoading] = useState(true);
   const [expandedCard, setExpandedCard] = useState(null);
 
-  const { login } = useAuth();
+  const { login, token, user } = useAuth();
   const { showToast } = useToast();
+
+  const getDashboardLink = () => {
+    if (!user) return '/';
+    if (user.role === 'admin') return '/admin/dashboard';
+    if (user.role === 'teacher') return '/teacher/dashboard';
+    if (user.role === 'student') {
+      return user.studentType === 'NotesOnly' ? '/student/notes-dashboard' : '/student/dashboard';
+    }
+    return '/';
+  };
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [emailOrId, setEmailOrId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('login') === 'true') {
+      setIsLoginModalOpen(true);
+      navigate('/', { replace: true });
+    }
+  }, [location, navigate]);
 
 
 
@@ -71,7 +94,7 @@ const LandingPage = () => {
       } else if (result.role === 'teacher') {
         navigate('/teacher/dashboard');
       } else if (result.role === 'student') {
-        navigate('/student/dashboard');
+        navigate(result.studentType === 'NotesOnly' ? '/student/notes-dashboard' : '/student/dashboard');
       }
     } else {
       showToast(result.message || 'Invalid credentials', 'error');
@@ -83,8 +106,25 @@ const LandingPage = () => {
 
 
 
+  const getYoutubeEmbedUrl = (url) => {
+    if (!url) return '';
+    let match = url.match(/[?&]v=([^&#]*)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    match = url.match(/youtu\.be\/([^&#]*)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    match = url.match(/youtube\.com\/embed\/([^&#]*)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    return url;
+  };
+
   useEffect(() => {
-    // Fetch courses and achievements from backend
+    // Fetch courses, achievements and demo classes from backend
     const fetchData = async () => {
       try {
         // Fetch fee structures (courses)
@@ -100,6 +140,25 @@ const LandingPage = () => {
           const achData = await achRes.json();
           // Take only first 6
           setAchievements(achData.slice(0, 6));
+        }
+
+        // Fetch demo classes
+        const demoRes = await fetch(`${API_BASE_URL}/api/demo-classes`);
+        if (demoRes.ok) {
+          const demoData = await demoRes.json();
+          setDemoClasses(demoData);
+        }
+
+        // Fetch promotional offers
+        const offersRes = await fetch(`${API_BASE_URL}/api/offers`);
+        if (offersRes.ok) {
+          const offersData = await offersRes.json();
+          // Find the latest active offer
+          const active = offersData.find(o => o.isActive === true);
+          if (active) {
+            setActiveOffer(active);
+            setShowOfferPopup(true);
+          }
         }
       } catch (err) {
         console.error('Error fetching landing data:', err);
@@ -191,7 +250,7 @@ const LandingPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => { window.scrollTo({ top: 0, behavior: 'smooth' }); setIsMobileMenuOpen(false); }}>
               <img src={logo} alt="Vidyarthi Classes Logo" className="w-12 h-12 object-contain" />
               <div>
                 <span className="text-xl sm:text-2xl font-bold font-heading text-primary leading-none block">
@@ -202,6 +261,15 @@ const LandingPage = () => {
                 </span>
               </div>
             </div>
+            
+            {/* Mobile Menu 3-dot trigger button */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="md:hidden p-1.5 text-slate-500 hover:text-primary hover:bg-slate-50 rounded-xl transition-all cursor-pointer mr-1"
+              title="Menu"
+            >
+              <MoreVertical className="w-6 h-6" />
+            </button>
 
             {/* Links */}
             <div className="hidden md:flex items-center gap-8">
@@ -209,26 +277,112 @@ const LandingPage = () => {
               <a href="#about" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">About</a>
               <a href="#courses" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Courses</a>
               <a href="#achievements" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Achievements</a>
-              <a href="#contact" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Contact</a>
+              <Link to="/study-material" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Study Material</Link>
             </div>
 
-            {/* CTAs */}
-            <div className="flex items-center gap-3">
+            {/* CTAs (Hidden on mobile) */}
+            <div className="hidden md:flex items-center gap-3">
               <button
                 onClick={() => navigate('/enquiry')}
                 className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-white bg-secondary hover:bg-secondary-dark rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
               >
                 Enquiry
               </button>
-              <button
-                onClick={() => setIsLoginModalOpen(true)}
-                className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary-light rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
-              >
-                Login
-              </button>
+              {token && user ? (
+                <button
+                  onClick={() => navigate(getDashboardLink())}
+                  className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary-light rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+                >
+                  Dashboard
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsLoginModalOpen(true)}
+                  className="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary-light rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
+                >
+                  Login
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Mobile Menu Dropdown Panel */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden bg-white border-t border-slate-100 shadow-lg absolute top-20 left-0 w-full z-45 p-5 space-y-5 animate-fadeIn">
+            <div className="flex flex-col gap-3 text-left">
+              <a
+                href="#home"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-slate-600 hover:text-primary font-semibold transition-colors text-sm py-2.5 border-b border-slate-50"
+              >
+                Home
+              </a>
+              <a
+                href="#about"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-slate-600 hover:text-primary font-semibold transition-colors text-sm py-2.5 border-b border-slate-50"
+              >
+                About Us
+              </a>
+              <a
+                href="#courses"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-slate-600 hover:text-primary font-semibold transition-colors text-sm py-2.5 border-b border-slate-50"
+              >
+                Courses Offered
+              </a>
+              <a
+                href="#achievements"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-slate-600 hover:text-primary font-semibold transition-colors text-sm py-2.5 border-b border-slate-50"
+              >
+                Achievements
+              </a>
+              <Link
+                to="/study-material"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-slate-600 hover:text-primary font-semibold transition-colors text-sm py-2.5 block"
+              >
+                Study Material
+              </Link>
+            </div>
+
+            {/* Mobile Menu CTAs */}
+            <div className="flex flex-col gap-3 pt-2">
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  navigate('/enquiry');
+                }}
+                className="w-full text-center px-5 py-3 text-sm font-semibold text-white bg-secondary hover:bg-secondary-dark rounded-xl shadow-md transition-all cursor-pointer"
+              >
+                Enquiry
+              </button>
+              {token && user ? (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    navigate(getDashboardLink());
+                  }}
+                  className="w-full text-center px-5 py-3 text-sm font-semibold text-white bg-primary hover:bg-primary-light rounded-xl shadow-md transition-all cursor-pointer"
+                >
+                  Dashboard
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    setIsLoginModalOpen(true);
+                  }}
+                  className="w-full text-center px-5 py-3 text-sm font-semibold text-white bg-primary hover:bg-primary-light rounded-xl shadow-md transition-all cursor-pointer"
+                >
+                  Login
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </nav>
 
       {/* 2. HERO SECTION */}
@@ -260,12 +414,12 @@ const LandingPage = () => {
                 >
                   Explore Courses <ArrowRight className="w-4 h-4" />
                 </a>
-                <a
-                  href="#contact"
-                  className="px-8 py-4 text-sm font-bold text-primary bg-white border border-slate-200 hover:border-primary/30 rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+                <Link
+                  to="/study-material"
+                  className="px-8 py-4 text-sm font-bold text-primary bg-white border border-slate-200 hover:border-primary/30 rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 text-center"
                 >
-                  Contact
-                </a>
+                  Study Material
+                </Link>
               </div>
             </div>
 
@@ -383,6 +537,91 @@ const LandingPage = () => {
         </div>
       </section>
 
+      {/* 3.5 DEMO CLASSES VIDEO CAROUSEL / SLIDER */}
+      {demoClasses && demoClasses.length > 0 && (
+        <section className="py-16 bg-slate-50 border-y border-slate-100 overflow-hidden">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center space-y-3 mb-12">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold tracking-wider text-secondary uppercase bg-secondary/10 rounded-full border border-secondary/20">
+                <Video className="w-3.5 h-3.5" /> Free Trial Lectures
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-extrabold font-heading text-primary">
+                Experience Our Demo Classes
+              </h2>
+              <div className="h-1.5 w-16 bg-secondary mx-auto rounded-full" />
+              <p className="text-slate-500 text-sm max-w-xl mx-auto">
+                Watch sample lectures from our expert faculties in Kota. Learn anywhere, anytime with uncompromised quality.
+              </p>
+            </div>
+
+            {/* Sliding Marquee Track */}
+            <div className="relative overflow-hidden py-4 select-none">
+              <style>{`
+                @keyframes marquee {
+                  0% { transform: translateX(0); }
+                  100% { transform: translateX(-50%); }
+                }
+                .marquee-track {
+                  display: flex;
+                  width: max-content;
+                  animation: marquee 40s linear infinite;
+                }
+                .marquee-track:hover {
+                  animation-play-state: paused;
+                }
+              `}</style>
+              
+              <div className="marquee-track flex gap-6">
+                {/* Render multiple sets of cards if the list is small to ensure seamless loop */}
+                {(demoClasses.length < 3 
+                  ? [...demoClasses, ...demoClasses, ...demoClasses, ...demoClasses] 
+                  : [...demoClasses, ...demoClasses]
+                ).map((demo, idx) => {
+                  const embedUrl = getYoutubeEmbedUrl(demo.videoUrl);
+                  return (
+                    <div
+                      key={`${demo._id}-${idx}`}
+                      className="w-[340px] bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1.5 transition-all duration-300 flex flex-col justify-between shrink-0 text-left"
+                    >
+                      <div className="space-y-4">
+                        {/* Video Aspect Container */}
+                        <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-100 shadow-inner group">
+                          {embedUrl.includes('youtube.com/embed') ? (
+                            <iframe
+                              className="w-full h-full"
+                              src={embedUrl}
+                              title={demo.title}
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                            ></iframe>
+                          ) : (
+                            <video
+                              src={demo.videoUrl}
+                              controls
+                              className="w-full h-full object-cover"
+                            ></video>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <h4 className="text-sm font-extrabold text-slate-800 leading-snug font-heading">
+                            {demo.title}
+                          </h4>
+                          {demo.description && (
+                            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                              {demo.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* 4. COURSES / CLASSES SECTION */}
       <section id="courses" className="py-24 bg-bgLight">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -398,65 +637,33 @@ const LandingPage = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 items-start">
             {coursesList.map((course, idx) => {
-              const matchedFee = courses.find(
-                (c) => c.class.toLowerCase() === course.name.toLowerCase()
-              );
               const IconComponent = course.icon;
-              const isExpanded = expandedCard === idx;
               return (
                 <div
                   key={idx}
-                  onClick={() => setExpandedCard(isExpanded ? null : idx)}
-                  className="bg-white border border-slate-100 rounded-2xl shadow-premium hover:shadow-premiumHover p-6 hover:-translate-y-1.5 transition-all duration-300 text-left flex flex-col justify-between cursor-pointer select-none"
+                  onClick={() => navigate(`/course/${encodeURIComponent(course.name)}`)}
+                  className="bg-white border border-slate-100 rounded-2xl shadow-premium hover:shadow-premiumHover p-6 hover:-translate-y-1.5 transition-all duration-300 text-left flex flex-col justify-between cursor-pointer select-none group min-h-[220px]"
                 >
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="bg-primary/5 text-primary p-3 rounded-xl inline-block">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="bg-primary/5 text-primary p-3 rounded-xl inline-block group-hover:bg-primary group-hover:text-white transition-all duration-300">
                         <IconComponent className="w-6 h-6" />
                       </div>
-                      <ChevronDown className={`w-5 h-5 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-secondary' : ''}`} />
+                      <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-secondary group-hover:translate-x-1 transition-all duration-300" />
                     </div>
-                    <h3 className="text-lg font-bold font-heading text-primary mb-2">
-                      {course.name}
-                    </h3>
-                    <p className="text-slate-500 text-xs mb-4 leading-relaxed">
-                      {course.desc}
-                    </p>
-                    
-                    {/* Expanded details container */}
-                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-60 opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
-                      <div className="border-t border-slate-50 pt-3 space-y-3">
-                        {course.sections ? (
-                          course.sections.map((sec, sIdx) => (
-                            <div key={sIdx} className="space-y-1">
-                              <span className="text-[10px] font-extrabold uppercase text-secondary tracking-wider block">
-                                {sec.name} Stream
-                              </span>
-                              <div className="space-y-1 pl-1">
-                                {sec.items.map((item, iIdx) => (
-                                  <div key={iIdx} className="flex items-start gap-1.5 text-slate-650 text-xs font-semibold leading-relaxed">
-                                    <span className="text-primary font-black shrink-0">•</span>
-                                    <span>{item}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          course.details && course.details.map((detail, dIdx) => (
-                            <div key={dIdx} className="flex items-start gap-2 text-slate-600 text-xs font-semibold leading-relaxed">
-                              <span className="text-secondary font-black shrink-0 mt-0.5">•</span>
-                              <span>{detail}</span>
-                            </div>
-                          ))
-                        )}
-                      </div>
+                    <div>
+                      <h3 className="text-lg font-bold font-heading text-primary mb-1">
+                        {course.name}
+                      </h3>
+                      <p className="text-slate-500 text-xs leading-relaxed">
+                        {course.desc}
+                      </p>
                     </div>
                   </div>
-                  <div className="border-t border-slate-100 pt-2 mt-4 flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      {isExpanded ? 'Click to hide info' : 'Click to view info'}
-                    </span>
+
+                  <div className="border-t border-slate-50 pt-3 mt-4 flex items-center justify-between text-xs font-bold text-secondary group-hover:text-primary transition-colors">
+                    <span>Explore Course Details</span>
+                    <span>→</span>
                   </div>
                 </div>
               );
@@ -812,6 +1019,46 @@ const LandingPage = () => {
             </div>
 
           </div>
+        </div>
+      )}
+
+      {/* 10. PROMO OFFER POPUP MODAL */}
+      {showOfferPopup && activeOffer && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fadeIn">
+          <div 
+            className="relative w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100 transform scale-100 transition-all duration-300"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Image display */}
+            <div className="relative aspect-[4/5] bg-slate-100 flex items-center justify-center overflow-hidden">
+              <img
+                src={activeOffer.photoUrl.startsWith('http') ? activeOffer.photoUrl : `${API_BASE_URL}${activeOffer.photoUrl}`}
+                alt={activeOffer.title || 'Special Offer'}
+                className="w-full h-full object-cover"
+              />
+              
+              {/* Overlay styling/gradient if title exists */}
+              {activeOffer.title && (
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent p-6 text-left">
+                  <h3 className="text-xl font-extrabold text-white font-heading leading-tight drop-shadow-md">
+                    {activeOffer.title}
+                  </h3>
+                </div>
+              )}
+            </div>
+
+            {/* Circular Close Button at Top Right of modal container */}
+            <button
+              onClick={() => setShowOfferPopup(false)}
+              className="absolute top-4 right-4 bg-slate-900/60 hover:bg-slate-900/80 text-white p-2 rounded-full transition-all duration-200 cursor-pointer shadow-lg hover:scale-110 flex items-center justify-center border border-white/20 z-10"
+              title="Close Offer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          {/* Click background to close */}
+          <div className="absolute inset-0 -z-10 cursor-pointer" onClick={() => setShowOfferPopup(false)}></div>
         </div>
       )}
 

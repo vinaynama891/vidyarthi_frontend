@@ -9,6 +9,7 @@ import {
   MapPin,
   Gift,
   LogOut,
+  ArrowLeft,
   CalendarDays,
   Award,
   Loader2,
@@ -488,11 +489,19 @@ const StudentDashboard = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
+        <div className="flex items-center gap-3">
+          <div className="text-right hidden sm:block mr-1">
             <span className="text-xs text-slate-400 block font-medium">Logged in as Student</span>
             <span className="text-sm font-bold text-slate-700">{profile.name}</span>
           </div>
+          <button
+            onClick={() => navigate('/')}
+            className="bg-slate-50 hover:bg-slate-100 border border-slate-150 hover:border-slate-200 text-slate-700 px-4 py-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
+            title="Back to Website"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Back to Website</span>
+          </button>
           <button
             onClick={handleLogout}
             className="bg-rose-50 hover:bg-rose-100 text-danger p-2.5 rounded-xl transition-all duration-200 cursor-pointer"

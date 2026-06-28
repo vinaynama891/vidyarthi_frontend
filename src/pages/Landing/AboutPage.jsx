@@ -50,7 +50,7 @@ const AboutPage = () => {
               <Link to="/about" className="text-primary font-bold transition-colors text-sm">About</Link>
               <a href="/#courses" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Courses</a>
               <a href="/#achievements" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Achievements</a>
-              <a href="/#contact" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Contact</a>
+              <Link to="/study-material" className="text-slate-600 hover:text-primary font-medium transition-colors text-sm">Study Material</Link>
             </div>
 
             {/* Back Button */}

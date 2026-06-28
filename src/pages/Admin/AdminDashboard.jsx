@@ -17,9 +17,11 @@ import {
   Image as ImageIcon,
   Radio,
   LogOut,
+  ArrowLeft,
   Menu,
   X,
   Plus,
+  Video,
   Search,
   SlidersHorizontal,
   Edit,
@@ -32,7 +34,10 @@ import {
   Send,
   Loader2,
   HelpCircle,
-  Bell
+  Bell,
+  Unlock,
+  Gift,
+  Lock
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -80,6 +85,41 @@ const AdminDashboard = () => {
   const [broadcasts, setBroadcasts] = useState([]);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [isAnnouncementMode, setIsAnnouncementMode] = useState(false);
+
+  // --- DEMO CLASSES STATE ---
+  const [demoClasses, setDemoClasses] = useState([]);
+  const [isDemoClassModalOpen, setIsDemoClassModalOpen] = useState(false);
+  const [demoClassForm, setDemoClassForm] = useState({
+    title: '',
+    videoUrl: '',
+    description: ''
+  });
+
+  // --- PROMO OFFERS STATE ---
+  const [offers, setOffers] = useState([]);
+  const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
+  const [offerTitle, setOfferTitle] = useState('');
+  const [offerFile, setOfferFile] = useState(null);
+  const [isUploadingOffer, setIsUploadingOffer] = useState(false);
+
+  // --- CHANGE PASSWORD STATE ---
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  // --- CUSTOMIZE COURSE CMS STATE ---
+  const [selectedCourseName, setSelectedCourseName] = useState('Class 1 to 8');
+  const [coursePage, setCoursePage] = useState(null);
+  const [coursePageLoading, setCoursePageLoading] = useState(false);
+  const [isAddBlockModalOpen, setIsAddBlockModalOpen] = useState(false);
+  const [addBlockType, setAddBlockType] = useState('paragraph'); // 'paragraph', 'image', 'card'
+  const [addBlockTitle, setAddBlockTitle] = useState('');
+  const [addBlockContent, setAddBlockContent] = useState('');
+  const [addBlockFile, setAddBlockFile] = useState(null);
+  const [isAddingBlock, setIsAddingBlock] = useState(false);
+
   const [broadcastForm, setBroadcastForm] = useState({
     title: '',
     description: '',
@@ -102,6 +142,14 @@ const AdminDashboard = () => {
 
   // Modals state
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [isQuickAccessModalOpen, setIsQuickAccessModalOpen] = useState(false);
+  const [quickAccessForm, setQuickAccessForm] = useState({
+    name: '',
+    phone: '',
+    class: 'Class 10',
+    unlockedNotes: []
+  });
+  const [generatedCredentials, setGeneratedCredentials] = useState(null);
   const [isTeacherModalOpen, setIsTeacherModalOpen] = useState(false);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
@@ -407,6 +455,8 @@ const AdminDashboard = () => {
     goodiesTotalFee: 0,
     goodiesPaidFee: 0,
     address: '',
+    studentType: 'Regular',
+    unlockedNotes: [],
     installments: []
   });
 
@@ -452,7 +502,14 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchStats();
     if (activeTab === 'dashboard') fetchStats();
-    else if (activeTab === 'student') fetchStudents();
+    else if (activeTab === 'student') {
+      fetchStudents();
+      fetchStudyMaterials();
+    }
+    else if (activeTab === 'notes-students') {
+      fetchStudents();
+      fetchStudyMaterials();
+    }
     else if (activeTab === 'teacher') fetchTeachers();
     else if (activeTab === 'fees') {
       fetchFeeStructures();
@@ -472,8 +529,20 @@ const AdminDashboard = () => {
     } else if (activeTab === 'attendance') {
       fetchStudents();
       fetchTeachers();
+    } else if (activeTab === 'demo-classes') {
+      fetchDemoClasses();
+    } else if (activeTab === 'offers') {
+      fetchOffers();
+    } else if (activeTab === 'customize-course') {
+      fetchCoursePage(selectedCourseName);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'customize-course') {
+      fetchCoursePage(selectedCourseName);
+    }
+  }, [selectedCourseName, activeTab]);
 
   // Refetch expenses when month/year filters change
   useEffect(() => {
@@ -774,6 +843,250 @@ const AdminDashboard = () => {
     }
   };
 
+  const getYoutubeEmbedUrl = (url) => {
+    if (!url) return '';
+    let match = url.match(/[?&]v=([^&#]*)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    match = url.match(/youtu\.be\/([^&#]*)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    match = url.match(/youtube\.com\/embed\/([^&#]*)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    return url;
+  };
+
+  const fetchDemoClasses = async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch('/api/demo-classes');
+      setDemoClasses(data);
+    } catch (err) {
+      showToast(err.message || 'Error fetching demo classes', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddDemoClass = async (e) => {
+    e.preventDefault();
+    if (!demoClassForm.title || !demoClassForm.videoUrl) {
+      showToast('Title and Video URL are required', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const res = await apiFetch('/api/demo-classes', {
+        method: 'POST',
+        body: JSON.stringify(demoClassForm)
+      });
+      showToast(res.message || 'Demo class added successfully', 'success');
+      setIsDemoClassModalOpen(false);
+      setDemoClassForm({ title: '', videoUrl: '', description: '' });
+      fetchDemoClasses();
+    } catch (err) {
+      showToast(err.message || 'Failed to add demo class', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteDemoClass = async (id) => {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`/api/demo-classes/${id}`, {
+        method: 'DELETE'
+      });
+      showToast(res.message || 'Demo class deleted successfully', 'success');
+      fetchDemoClasses();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete demo class', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchOffers = async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch('/api/offers');
+      setOffers(data);
+    } catch (err) {
+      showToast(err.message || 'Error fetching promo offers', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddOffer = async (e) => {
+    e.preventDefault();
+    if (!offerFile) {
+      showToast('Please select a promo offer image file', 'error');
+      return;
+    }
+
+    try {
+      setIsUploadingOffer(true);
+      const formData = new FormData();
+      formData.append('title', offerTitle);
+      formData.append('offerPhoto', offerFile);
+
+      const response = await fetch(`${API_BASE_URL}/api/offers`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: formData
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.message || 'Failed to upload offer');
+      }
+
+      showToast('Promo Offer uploaded successfully', 'success');
+      setIsOfferModalOpen(false);
+      setOfferTitle('');
+      setOfferFile(null);
+      fetchOffers();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsUploadingOffer(false);
+    }
+  };
+
+  const handleToggleOffer = async (id) => {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`/api/offers/${id}/toggle`, {
+        method: 'PUT'
+      });
+      showToast(res.message || 'Offer status updated', 'success');
+      fetchOffers();
+    } catch (err) {
+      showToast(err.message || 'Failed to update offer status', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteOffer = async (id) => {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`/api/offers/${id}`, {
+        method: 'DELETE'
+      });
+      showToast(res.message || 'Offer deleted successfully', 'success');
+      fetchOffers();
+    } catch (err) {
+      showToast(err.message || 'Failed to delete offer', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      showToast('All password fields are required', 'error');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      showToast('New passwords do not match', 'error');
+      return;
+    }
+
+    try {
+      setIsChangingPassword(true);
+      const res = await apiFetch('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      showToast(res.message || 'Password changed successfully', 'success');
+      setIsChangePasswordModalOpen(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      showToast(err.message || 'Failed to change password', 'error');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const fetchCoursePage = async (courseName) => {
+    try {
+      setCoursePageLoading(true);
+      const data = await apiFetch(`/api/courses/${encodeURIComponent(courseName)}`);
+      setCoursePage(data);
+    } catch (err) {
+      showToast(err.message || 'Failed to fetch course details', 'error');
+    } finally {
+      setCoursePageLoading(false);
+    }
+  };
+
+  const handleAddBlockSubmit = async (e) => {
+    e.preventDefault();
+    if (!addBlockType) {
+      showToast('Block type is required', 'error');
+      return;
+    }
+
+    try {
+      setIsAddingBlock(true);
+      const formData = new FormData();
+      formData.append('type', addBlockType);
+      formData.append('title', addBlockTitle);
+      formData.append('content', addBlockContent);
+      if (addBlockFile) {
+        formData.append('blockPhoto', addBlockFile);
+      }
+
+      const res = await apiFetch(`/api/courses/${encodeURIComponent(selectedCourseName)}/blocks`, {
+        method: 'POST',
+        body: formData
+      });
+
+      showToast(res.message || 'Content block added successfully', 'success');
+      setIsAddBlockModalOpen(false);
+      setAddBlockTitle('');
+      setAddBlockContent('');
+      setAddBlockFile(null);
+      fetchCoursePage(selectedCourseName);
+    } catch (err) {
+      showToast(err.message || 'Failed to add content block', 'error');
+    } finally {
+      setIsAddingBlock(false);
+    }
+  };
+
+  const handleDeleteCourseBlock = async (blockId) => {
+    if (!window.confirm('Are you sure you want to delete this content block?')) {
+      return;
+    }
+
+    try {
+      setCoursePageLoading(true);
+      const res = await apiFetch(`/api/courses/${encodeURIComponent(selectedCourseName)}/blocks/${blockId}`, {
+        method: 'DELETE'
+      });
+      showToast(res.message || 'Content block deleted successfully', 'success');
+      fetchCoursePage(selectedCourseName);
+    } catch (err) {
+      showToast(err.message || 'Failed to delete block', 'error');
+    } finally {
+      setCoursePageLoading(false);
+    }
+  };
+
   const resetBroadcastForm = () => {
     setBroadcastForm({
       title: '',
@@ -885,6 +1198,68 @@ const AdminDashboard = () => {
       resetStudentForm();
       fetchStudents();
       fetchStats();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- QUICK NOTES ACCESS HANDLERS ---
+  const resetQuickAccessForm = () => {
+    setQuickAccessForm({
+      name: '',
+      phone: '',
+      class: 'Class 10',
+      unlockedNotes: []
+    });
+    setGeneratedCredentials(null);
+  };
+
+  const handleGrantQuickAccess = async (e) => {
+    e.preventDefault();
+    if (!quickAccessForm.name || !quickAccessForm.phone || !quickAccessForm.class) {
+      showToast('Name, Phone Number, and Class are required', 'error');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      // Use the standard default password 'Vidyarthi@20' for all notes students
+      const notesPassword = 'Vidyarthi@20';
+
+      // Create student payload for NotesOnly account
+      const payload = {
+        name: quickAccessForm.name,
+        fatherName: 'N/A', // Set default father's name
+        class: quickAccessForm.class,
+        phone: quickAccessForm.phone,
+        password: notesPassword,
+        studentType: 'NotesOnly',
+        unlockedNotes: quickAccessForm.unlockedNotes,
+        totalFees: 0,
+        paidFees: 0,
+        goodiesTotalFee: 0,
+        goodiesPaidFee: 0,
+        address: 'Access granted via Quick Access panel'
+      };
+
+      const response = await apiFetch('/api/students/register', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      // Show generated credentials to admin
+      setGeneratedCredentials({
+        studentId: response.studentId,
+        password: notesPassword,
+        name: response.name,
+        phone: response.phone,
+        class: response.class
+      });
+
+      showToast('Access credentials generated successfully!', 'success');
+      fetchStudents(); // Sync student list
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -1153,6 +1528,8 @@ const AdminDashboard = () => {
       goodiesTotalFee: 0,
       goodiesPaidFee: 0,
       address: '',
+      studentType: 'Regular',
+      unlockedNotes: [],
       installments: []
     });
   };
@@ -1235,6 +1612,8 @@ const AdminDashboard = () => {
       goodiesTotalFee: student.goodiesTotalFee,
       goodiesPaidFee: student.goodiesPaidFee,
       address: student.address || '',
+      studentType: student.studentType || 'Regular',
+      unlockedNotes: (student.unlockedNotes || []).map(id => id._id || id || id.toString()),
       installments: student.installments || []
     });
     setIsStudentModalOpen(true);
@@ -1266,6 +1645,7 @@ const AdminDashboard = () => {
   const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: ClipboardList },
     { id: 'student', label: 'Student', icon: Users },
+    { id: 'notes-students', label: 'Notes Students', icon: GraduationCap },
     { id: 'teacher', label: 'Teacher', icon: UserCheck },
     { id: 'attendance', label: 'Attendance', icon: Calendar },
     { id: 'fees', label: 'Fee Management', icon: Coins },
@@ -1276,7 +1656,10 @@ const AdminDashboard = () => {
     { id: 'broadcast', label: 'Broadcast', icon: Radio },
     { id: 'announcement', label: 'Announcement', icon: Bell },
     { id: 'study-material', label: 'Study Material', icon: BookOpen },
-    { id: 'enquiry', label: 'Enquiries', icon: HelpCircle }
+    { id: 'enquiry', label: 'Enquiries', icon: HelpCircle },
+    { id: 'demo-classes', label: 'Demo Classes', icon: Video },
+    { id: 'offers', label: 'Promo Offers', icon: Gift },
+    { id: 'customize-course', label: 'Customize Course', icon: BookOpen }
   ];
 
   return (
@@ -1299,11 +1682,19 @@ const AdminDashboard = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
+        <div className="flex items-center gap-3">
+          <div className="text-right hidden sm:block mr-1">
             <span className="text-xs text-slate-400 block font-medium">Logged in as</span>
             <span className="text-sm font-bold text-slate-700">{admin?.name || 'Administrator'}</span>
           </div>
+          <button
+            onClick={() => navigate('/')}
+            className="bg-slate-50 hover:bg-slate-100 border border-slate-150 hover:border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
+            title="Back to Website"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Back to Website</span>
+          </button>
           <button
             onClick={handleLogout}
             className="bg-rose-50 hover:bg-rose-100 text-danger p-2.5 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center"
@@ -1344,8 +1735,16 @@ const AdminDashboard = () => {
               );
             })}
           </div>
-          <div className="p-4 border-t border-white/5 text-[10px] text-slate-400 text-center">
-            © 2026 Vidyarthi Classes Kota
+          <div className="p-4 border-t border-white/5 space-y-2 shrink-0">
+            <button
+              onClick={() => setIsChangePasswordModalOpen(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-350 hover:text-white bg-white/5 hover:bg-white/10 transition-all duration-200 cursor-pointer border border-white/5"
+            >
+              <Lock className="w-3.5 h-3.5" /> Change Password
+            </button>
+            <div className="text-[10px] text-slate-400 text-center">
+              © 2026 Vidyarthi Classes Kota
+            </div>
           </div>
         </aside>
 
@@ -1512,7 +1911,14 @@ const AdminDashboard = () => {
                           const pendingFee = netFee - student.paidFees;
                           return (
                             <tr key={student._id} className="hover:bg-slate-55/30 transition-colors">
-                              <td className="px-6 py-4 font-bold text-primary font-stats">{student.studentId}</td>
+                              <td className="px-6 py-4 font-bold text-primary font-stats">
+                                {student.studentId}
+                                {student.studentType === 'NotesOnly' && (
+                                  <span className="block mt-1 bg-amber-50 text-secondary border border-amber-200/50 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md text-center max-w-[80px]">
+                                    Notes Student
+                                  </span>
+                                )}
+                              </td>
                               <td className="px-6 py-4 font-bold text-slate-800">{student.name}</td>
                               <td className="px-6 py-4">{student.fatherName}</td>
                               <td className="px-6 py-4">
@@ -1521,24 +1927,34 @@ const AdminDashboard = () => {
                                 </span>
                               </td>
                               <td className="px-6 py-4">{student.phone}</td>
-                              <td className="px-6 py-4 font-stats">₹{student.totalFees.toLocaleString()}</td>
-                              <td className="px-6 py-4 text-emerald-600 font-bold font-stats">₹{student.paidFees.toLocaleString()}</td>
-                              <td className={`px-6 py-4 font-bold font-stats ${pendingFee > 0 ? 'text-danger' : 'text-emerald-600'}`}>
-                                ₹{pendingFee > 0 ? pendingFee.toLocaleString() : 0}
+                              <td className="px-6 py-4 font-stats">
+                                {student.studentType === 'NotesOnly' ? '-' : `₹${student.totalFees.toLocaleString()}`}
+                              </td>
+                              <td className="px-6 py-4 text-emerald-600 font-bold font-stats">
+                                {student.studentType === 'NotesOnly' ? '-' : `₹${student.paidFees.toLocaleString()}`}
+                              </td>
+                              <td className={`px-6 py-4 font-bold font-stats ${student.studentType === 'NotesOnly' ? 'text-slate-400' : pendingFee > 0 ? 'text-danger' : 'text-emerald-600'}`}>
+                                {student.studentType === 'NotesOnly' ? '-' : `₹${pendingFee > 0 ? pendingFee.toLocaleString() : 0}`}
                               </td>
                               <td className="px-6 py-4 space-y-1 text-left">
-                                <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                                  student.goodiesStatus === 'All Distributed'
-                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                                    : student.goodiesStatus === 'Pending'
-                                    ? 'bg-slate-50 text-slate-400 border border-slate-200'
-                                    : 'bg-orange-50 text-secondary border border-orange-100'
-                                }`}>
-                                  {student.goodiesStatus}
-                                </span>
-                                <div className="text-[10px] text-slate-400 font-semibold font-stats">
-                                  Paid: ₹{student.goodiesPaidFee} / ₹{student.goodiesTotalFee}
-                                </div>
+                                {student.studentType === 'NotesOnly' ? (
+                                  <span className="text-slate-400 font-semibold">-</span>
+                                ) : (
+                                  <>
+                                    <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                                      student.goodiesStatus === 'All Distributed'
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                        : student.goodiesStatus === 'Pending'
+                                        ? 'bg-slate-55 text-slate-400 border border-slate-200'
+                                        : 'bg-orange-50 text-secondary border border-orange-100'
+                                    }`}>
+                                      {student.goodiesStatus}
+                                    </span>
+                                    <div className="text-[10px] text-slate-400 font-semibold font-stats">
+                                      Paid: ₹{student.goodiesPaidFee} / ₹{student.goodiesTotalFee}
+                                    </div>
+                                  </>
+                                )}
                               </td>
                               <td className="px-6 py-4 flex items-center justify-center gap-2">
                                 <button
@@ -1570,6 +1986,145 @@ const AdminDashboard = () => {
                     </table>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ==================== NOTES STUDENTS PAGE ==================== */}
+          {activeTab === 'notes-students' && (
+            <div className="space-y-8 animate-fadeIn text-left">
+              {/* Heading */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="text-left space-y-1">
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Notes Students Registrar</h2>
+                  <p className="text-xs text-slate-400">View and manage access credentials and unlocked notes for study material buyers.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    resetQuickAccessForm();
+                    setIsQuickAccessModalOpen(true);
+                  }}
+                  className="bg-secondary hover:bg-secondary-dark text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-md self-start sm:self-auto"
+                >
+                  <Unlock className="w-4 h-4" /> Grant Notes Access
+                </button>
+              </div>
+
+              {/* Filters */}
+              <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full sm:w-80">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                    <Search className="w-4 h-4" />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Search by ID, Name or Phone..."
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary transition-all text-xs text-slate-700"
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Filter Class:</span>
+                  <select
+                    value={studentClassFilter}
+                    onChange={(e) => setStudentClassFilter(e.target.value)}
+                    className="w-full sm:w-48 px-3.5 py-2 bg-white border border-slate-200 rounded-xl outline-none font-semibold text-xs text-slate-650 focus:ring-2 focus:ring-primary/10 focus:border-primary cursor-pointer"
+                  >
+                    <option value="">All Classes</option>
+                    {classesOptions.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-premium overflow-hidden">
+                {loading ? (
+                  <div className="flex justify-center items-center py-20">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  </div>
+                ) : (() => {
+                  const filteredNotesStudents = students.filter(s => {
+                    if (s.studentType !== 'NotesOnly') return false;
+                    
+                    // Apply class filter
+                    if (studentClassFilter && s.class !== studentClassFilter) return false;
+                    
+                    // Apply search filter
+                    if (studentSearch) {
+                      const searchLower = studentSearch.toLowerCase();
+                      return (
+                        s.studentId.toLowerCase().includes(searchLower) ||
+                        s.name.toLowerCase().includes(searchLower) ||
+                        s.phone.includes(searchLower)
+                      );
+                    }
+                    return true;
+                  });
+
+                  if (filteredNotesStudents.length === 0) {
+                    return <div className="text-slate-400 py-16 text-center text-sm font-medium">No notes students found.</div>;
+                  }
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-left">
+                        <thead>
+                          <tr className="bg-slate-50/70 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                            <th className="px-6 py-4">ID</th>
+                            <th className="px-6 py-4">Student Name</th>
+                            <th className="px-6 py-4">Class</th>
+                            <th className="px-6 py-4">Phone</th>
+                            <th className="px-6 py-4">Unlocked Notes</th>
+                            <th className="px-6 py-4 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
+                          {filteredNotesStudents.map((student) => {
+                            // Find note count
+                            const noteCount = student.unlockedNotes?.length || 0;
+                            return (
+                              <tr key={student._id} className="hover:bg-slate-55/30 transition-colors">
+                                <td className="px-6 py-4 font-bold text-primary font-stats">{student.studentId}</td>
+                                <td className="px-6 py-4 font-bold text-slate-800">{student.name}</td>
+                                <td className="px-6 py-4">
+                                  <span className="bg-primary/5 text-primary px-2.5 py-1 rounded-full text-[10px] font-bold">
+                                    {student.class}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4">{student.phone}</td>
+                                <td className="px-6 py-4">
+                                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-md font-bold text-[10px]">
+                                    {noteCount} Note{noteCount !== 1 ? 's' : ''} Unlocked
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 flex items-center justify-center gap-2">
+                                  <button
+                                    onClick={() => openEditStudent(student)}
+                                    className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-primary/5 hover:text-primary transition-colors cursor-pointer"
+                                    title="Edit Access / Details"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteStudent(student)}
+                                    className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-rose-50 hover:text-danger transition-colors cursor-pointer"
+                                    title="Delete Student"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -2930,15 +3485,26 @@ const AdminDashboard = () => {
                   <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Study Materials Management</h2>
                   <p className="text-xs text-slate-400">Manage, organize, and upload worksheets and syllabus notes by course categories.</p>
                 </div>
-                <button
-                  onClick={() => {
-                    setStudyMaterialClass('');
-                    setIsStudyMaterialModalOpen(true);
-                  }}
-                  className="bg-primary hover:bg-primary-light text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shadow-md"
-                >
-                  <Plus className="w-4 h-4" /> Upload Material
-                </button>
+                <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
+                  <button
+                    onClick={() => {
+                      resetQuickAccessForm();
+                      setIsQuickAccessModalOpen(true);
+                    }}
+                    className="bg-secondary hover:bg-secondary-dark text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-md"
+                  >
+                    <Unlock className="w-4 h-4" /> Grant Notes Access
+                  </button>
+                  <button
+                    onClick={() => {
+                      setStudyMaterialClass('');
+                      setIsStudyMaterialModalOpen(true);
+                    }}
+                    className="bg-primary hover:bg-primary-light text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-md"
+                  >
+                    <Plus className="w-4 h-4" /> Upload Material
+                  </button>
+                </div>
               </div>
 
               {loading && studyMaterials.length === 0 ? (
@@ -3125,6 +3691,308 @@ const AdminDashboard = () => {
               )}
             </div>
           )}
+
+          {activeTab === 'demo-classes' && (
+            <div className="space-y-8 animate-fadeIn text-left">
+              {/* Heading */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="text-left space-y-1">
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Demo Classes Management</h2>
+                  <p className="text-xs text-slate-400">Add, review, and delete demo class video links displayed on the landing page.</p>
+                </div>
+                <button
+                  onClick={() => setIsDemoClassModalOpen(true)}
+                  className="bg-primary hover:bg-primary-light text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-md self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" /> Add Demo Class
+                </button>
+              </div>
+
+              {/* Demo Classes Grid/List */}
+              {loading && demoClasses.length === 0 ? (
+                <div className="flex justify-center items-center py-20">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+              ) : demoClasses.length === 0 ? (
+                <div className="text-slate-450 py-20 text-center text-sm font-semibold border border-dashed border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-center gap-3">
+                  <Video className="w-10 h-10 text-slate-300" />
+                  <p>No demo classes added yet.</p>
+                  <button
+                    onClick={() => setIsDemoClassModalOpen(true)}
+                    className="bg-primary hover:bg-primary-light text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Add first video
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {demoClasses.map((demo) => {
+                    const embedUrl = getYoutubeEmbedUrl(demo.videoUrl);
+                    return (
+                      <div
+                        key={demo._id}
+                        className="bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left"
+                      >
+                        <div className="space-y-3">
+                          {/* Video Preview */}
+                          <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-100">
+                            {embedUrl.includes('youtube.com/embed') ? (
+                              <iframe
+                                className="w-full h-full"
+                                src={embedUrl}
+                                title={demo.title}
+                                allowFullScreen
+                              ></iframe>
+                            ) : (
+                              <video
+                                src={demo.videoUrl}
+                                controls
+                                className="w-full h-full object-cover"
+                              ></video>
+                            )}
+                          </div>
+                          
+                          <h4 className="text-sm font-extrabold text-slate-800 font-heading leading-tight">{demo.title}</h4>
+                          {demo.description && (
+                            <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{demo.description}</p>
+                          )}
+                          <div className="text-[10px] text-slate-450 font-medium">
+                            Link: <a href={demo.videoUrl} target="_blank" rel="noopener noreferrer" className="text-secondary break-all hover:underline">{demo.videoUrl}</a>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-50 pt-4 mt-5 flex items-center justify-end">
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Are you sure you want to delete this demo class?')) {
+                                handleDeleteDemoClass(demo._id);
+                              }
+                            }}
+                            className="bg-rose-50 hover:bg-rose-100 text-danger p-2 rounded-xl transition-colors cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'offers' && (
+            <div className="space-y-8 animate-fadeIn text-left">
+              {/* Heading */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="text-left space-y-1">
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Promo Offers Management</h2>
+                  <p className="text-xs text-slate-400">Upload and manage promotional pop-up offer images displayed on the landing page.</p>
+                </div>
+                <button
+                  onClick={() => setIsOfferModalOpen(true)}
+                  className="bg-primary hover:bg-primary-light text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shadow-md self-start sm:self-auto"
+                >
+                  <Plus className="w-4 h-4" /> Upload Offer Pop-up
+                </button>
+              </div>
+
+              {/* Promo Offers Grid/List */}
+              {loading && offers.length === 0 ? (
+                <div className="flex justify-center items-center py-20">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+              ) : offers.length === 0 ? (
+                <div className="text-slate-450 py-20 text-center text-sm font-semibold border border-dashed border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-center gap-3">
+                  <Gift className="w-10 h-10 text-slate-300" />
+                  <p>No promo offers uploaded yet.</p>
+                  <button
+                    onClick={() => setIsOfferModalOpen(true)}
+                    className="bg-primary hover:bg-primary-light text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Upload first offer
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {offers.map((offer) => {
+                    const downloadUrl = offer.photoUrl.startsWith('http') ? offer.photoUrl : `${API_BASE_URL}${offer.photoUrl}`;
+                    return (
+                      <div
+                        key={offer._id}
+                        className="bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left"
+                      >
+                        <div className="space-y-4">
+                          {/* Image Container */}
+                          <div className="relative aspect-video rounded-2xl overflow-hidden bg-slate-100 border border-slate-150 shadow-inner group">
+                            <img
+                              src={downloadUrl}
+                              alt={offer.title || 'Promo Offer'}
+                              className="w-full h-full object-contain"
+                            />
+                            <div className="absolute top-2 right-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide border shadow-sm ${
+                                offer.isActive 
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-250' 
+                                  : 'bg-slate-50 text-slate-500 border-slate-200'
+                              }`}>
+                                {offer.isActive ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {offer.title && (
+                            <h4 className="text-sm font-extrabold text-slate-800 font-heading leading-tight">{offer.title}</h4>
+                          )}
+                          <div className="text-[10px] text-slate-400 font-medium">
+                            Uploaded: {new Date(offer.createdAt).toLocaleDateString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-50 pt-4 mt-5 flex items-center justify-between">
+                          <button
+                            onClick={() => handleToggleOffer(offer._id)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                              offer.isActive 
+                                ? 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100' 
+                                : 'bg-emerald-50 text-emerald-705 border-emerald-255 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {offer.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Are you sure you want to delete this offer popup?')) {
+                                handleDeleteOffer(offer._id);
+                              }
+                            }}
+                            className="bg-rose-50 hover:bg-rose-100 text-danger p-2 rounded-xl transition-colors cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ==================== WORKSPACE 17: CUSTOMIZE COURSE CMS ==================== */}
+          {activeTab === 'customize-course' && (
+            <div className="space-y-8 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                <div className="space-y-1">
+                  <h2 className="text-2xl font-extrabold text-primary font-heading">Customize Course Detail Pages</h2>
+                  <p className="text-xs text-slate-400">Select a course to customize its landing detail page layout with custom cards, images, and paragraphs.</p>
+                </div>
+              </div>
+
+              {/* Course Selector Card */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-premium flex flex-col sm:flex-row items-center justify-between gap-6">
+                <div className="space-y-1.5 w-full sm:max-w-xs">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block text-xs">Select Course / Class *</label>
+                  <select
+                    value={selectedCourseName}
+                    onChange={(e) => setSelectedCourseName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                  >
+                    <option value="Class 1 to 8">Class 1 to 8</option>
+                    <option value="Class 9 to 10">Class 9 to 10</option>
+                    <option value="Class 11 to 12">Class 11 to 12</option>
+                    <option value="BSTC">BSTC</option>
+                    <option value="Rajasthan GK">Rajasthan GK</option>
+                    <option value="Hindi Literature">Hindi Literature</option>
+                  </select>
+                </div>
+
+                <div className="shrink-0 w-full sm:w-auto">
+                  <button
+                    onClick={() => {
+                      setAddBlockType('paragraph');
+                      setIsAddBlockModalOpen(true);
+                    }}
+                    className="w-full sm:w-auto px-5 py-3 bg-primary hover:bg-primary-light text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <BookOpen className="w-4 h-4 mr-1.5" /> Customize Course Page
+                  </button>
+                </div>
+              </div>
+
+              {/* Blocks Preview List */}
+              <div className="space-y-6">
+                <h3 className="text-lg font-bold text-primary font-heading">Page Layout Preview ({selectedCourseName})</h3>
+                
+                {coursePageLoading ? (
+                  <div className="flex justify-center items-center py-20 bg-white border border-slate-100 rounded-3xl">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  </div>
+                ) : !coursePage || coursePage.blocks.length === 0 ? (
+                  <div className="text-slate-455 py-16 text-center text-xs font-semibold flex flex-col items-center gap-2 border border-dashed border-slate-150 rounded-2xl bg-slate-50/50">
+                    <BookOpen className="w-8 h-8 text-slate-350" />
+                    <p>No content blocks added yet. Click "Customize Course Page" above to design this page!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {coursePage.blocks.map((block) => {
+                      const blockImgUrl = block.photoUrl 
+                        ? (block.photoUrl.startsWith('http') ? block.photoUrl : `${API_BASE_URL}${block.photoUrl}`)
+                        : null;
+
+                      return (
+                        <div key={block._id} className="bg-white border border-slate-100 rounded-3xl p-6 shadow-premium relative flex flex-col md:flex-row gap-6 items-start group">
+                          {/* Delete Block Button */}
+                          <button
+                            onClick={() => handleDeleteCourseBlock(block._id)}
+                            className="absolute top-4 right-4 bg-rose-50 hover:bg-rose-100 text-danger p-2 rounded-xl transition-colors cursor-pointer"
+                            title="Delete Block"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+
+                          {/* Block Icon / Type Tag */}
+                          <span className="absolute top-4 left-4 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border bg-slate-50 text-slate-500 border-slate-105">
+                            {block.type === 'paragraph' && <FileText className="w-3.5 h-3.5" />}
+                            {block.type === 'image' && <ImageIcon className="w-3.5 h-3.5" />}
+                            {block.type === 'card' && <BookOpen className="w-3.5 h-3.5" />}
+                            {block.type}
+                          </span>
+
+                          <div className="pt-6 w-full flex flex-col md:flex-row gap-6">
+                            {blockImgUrl && (
+                              <div className="w-full md:w-1/4 aspect-video md:aspect-square rounded-2xl overflow-hidden border border-slate-150 bg-slate-50 shrink-0">
+                                <img
+                                  src={blockImgUrl}
+                                  alt="Block Preview"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            )}
+
+                            <div className="space-y-2 flex-grow text-xs font-semibold">
+                              {block.title && (
+                                <h4 className="text-base font-extrabold text-primary font-heading">{block.title}</h4>
+                              )}
+                              {block.content && (
+                                <p className="text-slate-500 leading-relaxed whitespace-pre-wrap">{block.content}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
@@ -3207,74 +4075,92 @@ const AdminDashboard = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Goodies Distributed</label>
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Student Type *</label>
                   <select
-                    value={studentForm.goodiesStatus}
-                    onChange={(e) => setStudentForm((prev) => ({ ...prev, goodiesStatus: e.target.value }))}
+                    value={studentForm.studentType}
+                    onChange={(e) => setStudentForm((prev) => ({ ...prev, studentType: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:bg-white"
                   >
-                    <option value="Pending">Pending</option>
-                    <option value="Bag & Books">Bag & Books</option>
-                    <option value="T-Shirt Only">T-Shirt Only</option>
-                    <option value="All Distributed">All Distributed</option>
+                    <option value="Regular">Regular (Coaching Student)</option>
+                    <option value="NotesOnly">Notes Only (Study Material Student)</option>
                   </select>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Discount (₹)</label>
-                  <input
-                    type="number"
-                    value={studentForm.discount}
-                    onChange={(e) => setStudentForm((prev) => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
-                  />
-                </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Total Fees (₹) [Auto-Filled]</label>
-                  <input
-                    type="number"
-                    required
-                    value={studentForm.totalFees}
-                    onChange={(e) => setStudentForm((prev) => ({ ...prev, totalFees: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white font-bold text-slate-800"
-                  />
-                </div>
+              {studentForm.studentType !== 'NotesOnly' && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Goodies Distributed</label>
+                      <select
+                        value={studentForm.goodiesStatus}
+                        onChange={(e) => setStudentForm((prev) => ({ ...prev, goodiesStatus: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:bg-white"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Bag & Books">Bag & Books</option>
+                        <option value="T-Shirt Only">T-Shirt Only</option>
+                        <option value="All Distributed">All Distributed</option>
+                      </select>
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Paid Fees (₹)</label>
-                  <input
-                    type="number"
-                    value={studentForm.paidFees}
-                    onChange={(e) => setStudentForm((prev) => ({ ...prev, paidFees: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700 font-bold"
-                  />
-                </div>
-              </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Discount (₹)</label>
+                      <input
+                        type="number"
+                        value={studentForm.discount}
+                        onChange={(e) => setStudentForm((prev) => ({ ...prev, discount: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Goodies Total Fee (₹)</label>
-                  <input
-                    type="number"
-                    value={studentForm.goodiesTotalFee}
-                    onChange={(e) => setStudentForm((prev) => ({ ...prev, goodiesTotalFee: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
-                  />
-                </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Total Fees (₹) [Auto-Filled]</label>
+                      <input
+                        type="number"
+                        required
+                        value={studentForm.totalFees}
+                        onChange={(e) => setStudentForm((prev) => ({ ...prev, totalFees: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white font-bold text-slate-800"
+                      />
+                    </div>
 
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Goodies Paid Fee (₹)</label>
-                  <input
-                    type="number"
-                    value={studentForm.goodiesPaidFee}
-                    onChange={(e) => setStudentForm((prev) => ({ ...prev, goodiesPaidFee: parseFloat(e.target.value) || 0 }))}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
-                  />
-                </div>
-              </div>
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Paid Fees (₹)</label>
+                      <input
+                        type="number"
+                        value={studentForm.paidFees}
+                        onChange={(e) => setStudentForm((prev) => ({ ...prev, paidFees: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700 font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Goodies Total Fee (₹)</label>
+                      <input
+                        type="number"
+                        value={studentForm.goodiesTotalFee}
+                        onChange={(e) => setStudentForm((prev) => ({ ...prev, goodiesTotalFee: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Goodies Paid Fee (₹)</label>
+                      <input
+                        type="number"
+                        value={studentForm.goodiesPaidFee}
+                        onChange={(e) => setStudentForm((prev) => ({ ...prev, goodiesPaidFee: parseFloat(e.target.value) || 0 }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="space-y-1">
                 <label className="font-bold text-slate-500 uppercase tracking-wider block">Address</label>
@@ -3286,139 +4172,191 @@ const AdminDashboard = () => {
                 />
               </div>
 
-              {/* Installments Management Section */}
-              <div className="border-t border-slate-100 pt-4 space-y-3">
-                <h4 className="text-sm font-extrabold text-primary font-heading relative pl-3 text-left">
-                  Installments / Fee Payment History
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-3 bg-secondary rounded-full" />
-                </h4>
-                
-                {/* Add Installment Form */}
-                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end text-xs">
-                  <div className="space-y-1 text-left">
-                    <label className="font-bold text-slate-500 uppercase tracking-wider block">Date</label>
-                    <input
-                      type="date"
-                      id="inst-date"
-                      defaultValue={new Date().toISOString().split('T')[0]}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-700 font-medium"
-                    />
-                  </div>
-                  <div className="space-y-1 text-left">
-                    <label className="font-bold text-slate-500 uppercase tracking-wider block">Amount (₹)</label>
-                    <input
-                      type="number"
-                      id="inst-amount"
-                      placeholder="Amount"
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-700 font-bold"
-                    />
-                  </div>
-                  <div className="space-y-1 text-left">
-                    <label className="font-bold text-slate-500 uppercase tracking-wider block">Mode</label>
-                    <select
-                      id="inst-method"
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-600 font-bold"
-                    >
-                      <option value="Cash">Cash</option>
-                      <option value="Online">Online</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const dateVal = document.getElementById('inst-date').value;
-                      const amtVal = parseFloat(document.getElementById('inst-amount').value);
-                      const methodVal = document.getElementById('inst-method').value;
-                      
-                      if (isNaN(amtVal) || amtVal <= 0) {
-                        showToast('Please enter a valid installment amount', 'error');
-                        return;
-                      }
-                      
-                      const newInst = {
-                        date: dateVal || new Date().toISOString().split('T')[0],
-                        amount: amtVal,
-                        method: methodVal,
-                        remarks: 'Installment'
-                      };
-                      
-                      setStudentForm((prev) => {
-                        const updatedInsts = [...(prev.installments || []), newInst];
-                        const sumPaid = updatedInsts.reduce((acc, curr) => acc + curr.amount, 0);
-                        return {
-                          ...prev,
-                          installments: updatedInsts,
-                          paidFees: sumPaid
-                        };
-                      });
-                      
-                      document.getElementById('inst-amount').value = '';
-                    }}
-                    className="px-4 py-2 bg-secondary text-white font-semibold rounded-lg hover:bg-secondary-dark transition-all cursor-pointer text-center text-xs"
-                  >
-                    Add Payment
-                  </button>
+              {studentForm.studentType === 'NotesOnly' && (
+                <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/60 text-left">
+                  <h4 className="font-bold text-slate-600 uppercase tracking-wider text-xs">Unlock Study Materials / Notes</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold mb-2">Check the study materials to unlock them for this student. The first note of each class is always free.</p>
+                  
+                  {studyMaterials.length === 0 ? (
+                    <div className="text-slate-400 font-bold py-2">No study materials uploaded yet. Go to Study Material tab to upload.</div>
+                  ) : (
+                    <div className="max-h-60 overflow-y-auto space-y-4 pr-2">
+                      {Object.entries(
+                        studyMaterials.reduce((acc, mat) => {
+                          const targetClass = mat.targetClass || 'Other';
+                          if (!acc[targetClass]) acc[targetClass] = [];
+                          acc[targetClass].push(mat);
+                          return acc;
+                        }, {})
+                      ).map(([className, mats]) => (
+                        <div key={className} className="space-y-1.5">
+                          <h5 className="font-bold text-primary text-[10px] uppercase border-b border-slate-200/50 pb-0.5">{className}</h5>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {mats.map((mat) => {
+                              const isChecked = studentForm.unlockedNotes?.some(id => (id._id || id) === mat._id);
+                              return (
+                                <label key={mat._id} className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-100 hover:border-slate-250 hover:bg-slate-50/50 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const updatedList = e.target.checked
+                                        ? [...(studentForm.unlockedNotes || []), mat._id]
+                                        : (studentForm.unlockedNotes || []).filter(id => (id._id || id) !== mat._id);
+                                      setStudentForm(prev => ({ ...prev, unlockedNotes: updatedList }));
+                                    }}
+                                    className="mt-0.5 w-3.5 h-3.5 border-slate-300 text-secondary focus:ring-secondary/20 rounded cursor-pointer"
+                                  />
+                                  <div className="text-left leading-tight">
+                                    <span className="font-semibold text-slate-700 block text-[11px] truncate" title={mat.title}>{mat.title}</span>
+                                    {mat.description && <span className="text-[9px] text-slate-400 line-clamp-1">{mat.description}</span>}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              )}
 
-                {/* Installments Table */}
-                <div className="overflow-x-auto border border-slate-100 rounded-xl">
-                  <table className="w-full text-xs font-medium text-left">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-550 text-[10px] uppercase tracking-wider border-b border-slate-100">
-                        <th className="p-2 text-center w-10">S. No.</th>
-                        <th className="p-2">Date</th>
-                        <th className="p-2">Amount (₹)</th>
-                        <th className="p-2">Mode</th>
-                        <th className="p-2 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-55">
-                      {(!studentForm.installments || studentForm.installments.length === 0) ? (
-                        <tr>
-                          <td colSpan="5" className="p-3 text-center text-slate-400 italic">No installments added yet.</td>
+              {/* Installments Management Section */}
+              {studentForm.studentType !== 'NotesOnly' && (
+                <div className="border-t border-slate-100 pt-4 space-y-3">
+                  <h4 className="text-sm font-extrabold text-primary font-heading relative pl-3 text-left">
+                    Installments / Fee Payment History
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-3 bg-secondary rounded-full" />
+                  </h4>
+                  
+                  {/* Add Installment Form */}
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end text-xs">
+                    <div className="space-y-1 text-left">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Date</label>
+                      <input
+                        type="date"
+                        id="inst-date"
+                        defaultValue={new Date().toISOString().split('T')[0]}
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-700 font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Amount (₹)</label>
+                      <input
+                        type="number"
+                        id="inst-amount"
+                        placeholder="Amount"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-700 font-bold"
+                      />
+                    </div>
+                    <div className="space-y-1 text-left">
+                      <label className="font-bold text-slate-500 uppercase tracking-wider block">Mode</label>
+                      <select
+                        id="inst-method"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-600 font-bold"
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Online">Online</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const dateVal = document.getElementById('inst-date').value;
+                        const amtVal = parseFloat(document.getElementById('inst-amount').value);
+                        const methodVal = document.getElementById('inst-method').value;
+                        
+                        if (isNaN(amtVal) || amtVal <= 0) {
+                          showToast('Please enter a valid installment amount', 'error');
+                          return;
+                        }
+                        
+                        const newInst = {
+                          date: dateVal || new Date().toISOString().split('T')[0],
+                          amount: amtVal,
+                          method: methodVal,
+                          remarks: 'Installment'
+                        };
+                        
+                        setStudentForm((prev) => {
+                          const updatedInsts = [...(prev.installments || []), newInst];
+                          const sumPaid = updatedInsts.reduce((acc, curr) => acc + curr.amount, 0);
+                          return {
+                            ...prev,
+                            installments: updatedInsts,
+                            paidFees: sumPaid
+                          };
+                        });
+                        
+                        document.getElementById('inst-amount').value = '';
+                      }}
+                      className="px-4 py-2 bg-secondary text-white font-semibold rounded-lg hover:bg-secondary-dark transition-all cursor-pointer text-center text-xs"
+                    >
+                      Add Payment
+                    </button>
+                  </div>
+
+                  {/* Installments Table */}
+                  <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                    <table className="w-full text-xs font-medium text-left">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-550 text-[10px] uppercase tracking-wider border-b border-slate-100">
+                          <th className="p-2 text-center w-10">S. No.</th>
+                          <th className="p-2">Date</th>
+                          <th className="p-2">Amount (₹)</th>
+                          <th className="p-2">Mode</th>
+                          <th className="p-2 text-center">Action</th>
                         </tr>
-                      ) : (
-                        studentForm.installments.map((inst, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50">
-                            <td className="p-2 text-center text-slate-450">{idx + 1}</td>
-                            <td className="p-2">{new Date(inst.date).toLocaleDateString('en-IN')}</td>
-                            <td className="p-2 font-bold font-stats text-slate-700">₹{inst.amount.toLocaleString()}</td>
-                            <td className="p-2">
-                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                inst.method === 'Cash' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
-                                inst.method === 'Online' ? 'bg-sky-50 text-sky-700 border border-sky-100' :
-                                'bg-slate-100 text-slate-650'
-                              }`}>
-                                {inst.method}
-                              </span>
-                            </td>
-                            <td className="p-2 text-center">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setStudentForm((prev) => {
-                                    const updatedInsts = prev.installments.filter((_, i) => i !== idx);
-                                    const sumPaid = updatedInsts.reduce((acc, curr) => acc + curr.amount, 0);
-                                    return {
-                                      ...prev,
-                                      installments: updatedInsts,
-                                      paidFees: sumPaid
-                                    };
-                                  });
-                                }}
-                                className="text-danger hover:text-rose-700 font-bold hover:underline cursor-pointer"
-                              >
-                                Delete
-                              </button>
-                            </td>
+                      </thead>
+                      <tbody className="divide-y divide-slate-55">
+                        {(!studentForm.installments || studentForm.installments.length === 0) ? (
+                          <tr>
+                            <td colSpan="5" className="p-3 text-center text-slate-400 italic">No installments added yet.</td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        ) : (
+                          studentForm.installments.map((inst, idx) => (
+                            <tr key={idx} className="hover:bg-slate-55/30">
+                              <td className="p-2 text-center text-slate-455">{idx + 1}</td>
+                              <td className="p-2">{new Date(inst.date).toLocaleDateString('en-IN')}</td>
+                              <td className="p-2 font-bold font-stats text-slate-700">₹{inst.amount.toLocaleString()}</td>
+                              <td className="p-2">
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                  inst.method === 'Cash' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
+                                  inst.method === 'Online' ? 'bg-sky-50 text-sky-700 border border-sky-100' :
+                                  'bg-slate-100 text-slate-650'
+                                }`}>
+                                  {inst.method}
+                                </span>
+                              </td>
+                              <td className="p-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setStudentForm((prev) => {
+                                      const updatedInsts = prev.installments.filter((_, i) => i !== idx);
+                                      const sumPaid = updatedInsts.reduce((acc, curr) => acc + curr.amount, 0);
+                                      return {
+                                        ...prev,
+                                        installments: updatedInsts,
+                                        paidFees: sumPaid
+                                      };
+                                    });
+                                  }}
+                                  className="text-danger hover:text-rose-700 font-bold hover:underline cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Action Buttons */}
               <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
@@ -3438,6 +4376,199 @@ const AdminDashboard = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================== */}
+      {/* ================= QUICK NOTES ACCESS MODAL =============== */}
+      {/* ========================================================== */}
+      {isQuickAccessModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-8 transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">
+                Grant Notes Access & Generate Credentials
+              </h3>
+              <button
+                onClick={() => setIsQuickAccessModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {generatedCredentials ? (
+              /* Success / Credentials display state */
+              <div className="p-8 space-y-6 text-center text-xs">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-lg font-bold text-slate-800">Access Granted Successfully!</h4>
+                  <p className="text-slate-400 font-semibold">Copy the credentials below and send them to the customer.</p>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 space-y-4 max-w-md mx-auto text-left">
+                  <div className="grid grid-cols-2 gap-y-3 gap-x-4 border-b border-slate-200/60 pb-3">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Student Name</span>
+                      <span className="font-semibold text-slate-700 text-sm">{generatedCredentials.name}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Phone Number</span>
+                      <span className="font-semibold text-slate-700 text-sm">{generatedCredentials.phone}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Class / Category</span>
+                      <span className="bg-primary/5 text-primary border border-primary/10 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase inline-block mt-0.5">{generatedCredentials.class}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                    <div className="bg-white border border-slate-150 p-3.5 rounded-xl shadow-xs text-center space-y-1">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">STUDENT ID</span>
+                      <span className="font-extrabold text-primary text-base tracking-wide font-stats block select-all">{generatedCredentials.studentId}</span>
+                    </div>
+                    <div className="bg-white border border-slate-150 p-3.5 rounded-xl shadow-xs text-center space-y-1">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">PASSWORD</span>
+                      <span className="font-extrabold text-secondary text-base tracking-wide font-stats block select-all">{generatedCredentials.password}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-center gap-3 pt-4">
+                  <button
+                    onClick={() => {
+                      const copyText = `*Vidyarthi Classes Kota*\n\nYour Notes Account has been created successfully!\n\n*Student ID:* ${generatedCredentials.studentId}\n*Password:* ${generatedCredentials.password}\n*Class:* ${generatedCredentials.class}\n\nLogin link: ${window.location.origin}/student/login`;
+                      navigator.clipboard.writeText(copyText);
+                      showToast('Credentials copied to clipboard!', 'success');
+                    }}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    Copy Credentials Info
+                  </button>
+                  <button
+                    onClick={() => setIsQuickAccessModalOpen(false)}
+                    className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-650 rounded-xl font-semibold border border-slate-200 transition-all cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Input form state */
+              <form onSubmit={handleGrantQuickAccess} className="p-6 space-y-6 text-left text-xs max-h-[75vh] overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 uppercase tracking-wider block">Student Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Rahul Kumar"
+                      value={quickAccessForm.name}
+                      onChange={(e) => setQuickAccessForm((prev) => ({ ...prev, name: e.target.value }))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 uppercase tracking-wider block">Phone / Mobile Number *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. 9876543210"
+                      value={quickAccessForm.phone}
+                      onChange={(e) => setQuickAccessForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-500 uppercase tracking-wider block">Class / Category *</label>
+                    <select
+                      value={quickAccessForm.class}
+                      onChange={(e) => setQuickAccessForm((prev) => ({ ...prev, class: e.target.value }))}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:bg-white"
+                    >
+                      {classesOptions.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Checklist of all uploaded Study Materials */}
+                <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/60 text-left">
+                  <h4 className="font-bold text-slate-600 uppercase tracking-wider text-xs">Unlock Study Materials / Notes</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold mb-2">Select the study materials to unlock for this student. The first note of each class is always free.</p>
+                  
+                  {studyMaterials.length === 0 ? (
+                    <div className="text-slate-400 font-bold py-2">No study materials uploaded yet. Go back and upload materials first.</div>
+                  ) : (
+                    <div className="max-h-60 overflow-y-auto space-y-4 pr-2">
+                      {Object.entries(
+                        studyMaterials.reduce((acc, mat) => {
+                          const targetClass = mat.targetClass || 'Other';
+                          if (!acc[targetClass]) acc[targetClass] = [];
+                          acc[targetClass].push(mat);
+                          return acc;
+                        }, {})
+                      ).map(([className, mats]) => (
+                        <div key={className} className="space-y-1.5">
+                          <h5 className="font-bold text-primary text-[10px] uppercase border-b border-slate-200/50 pb-0.5">{className}</h5>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {mats.map((mat) => {
+                              const isChecked = quickAccessForm.unlockedNotes?.some(id => (id._id || id) === mat._id);
+                              return (
+                                <label key={mat._id} className="flex items-start gap-2.5 p-2 bg-white rounded-lg border border-slate-100 hover:border-slate-250 hover:bg-slate-50/50 cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      const updatedList = e.target.checked
+                                        ? [...(quickAccessForm.unlockedNotes || []), mat._id]
+                                        : (quickAccessForm.unlockedNotes || []).filter(id => (id._id || id) !== mat._id);
+                                      setQuickAccessForm(prev => ({ ...prev, unlockedNotes: updatedList }));
+                                    }}
+                                    className="mt-0.5 w-3.5 h-3.5 border-slate-300 text-secondary focus:ring-secondary/20 rounded cursor-pointer"
+                                  />
+                                  <div className="text-left leading-tight">
+                                    <span className="font-semibold text-slate-700 block text-[11px] truncate" title={mat.title}>{mat.title}</span>
+                                    {mat.description && <span className="text-[9px] text-slate-400 line-clamp-1">{mat.description}</span>}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsQuickAccessModalOpen(false)}
+                    className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg border border-slate-200 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-5 py-2 text-white bg-secondary hover:bg-secondary-dark rounded-lg shadow font-semibold cursor-pointer"
+                  >
+                    Generate & Grant Access
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -4474,6 +5605,431 @@ const AdminDashboard = () => {
                     </>
                   ) : (
                     'Upload file'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Demo Class Modal */}
+      {isDemoClassModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">Add New Demo Class</h3>
+              <button
+                onClick={() => {
+                  setIsDemoClassModalOpen(false);
+                  setDemoClassForm({ title: '', videoUrl: '', description: '' });
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleAddDemoClass} className="p-6 space-y-4 text-left text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Video Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Class 10 Physics - Optics"
+                  value={demoClassForm.title}
+                  onChange={(e) => setDemoClassForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Video URL *</label>
+                <input
+                  type="url"
+                  required
+                  placeholder="e.g. https://www.youtube.com/watch?v=..."
+                  value={demoClassForm.videoUrl}
+                  onChange={(e) => setDemoClassForm(prev => ({ ...prev, videoUrl: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Description (Optional)</label>
+                <textarea
+                  placeholder="Write a brief description about the topics covered..."
+                  rows="3"
+                  value={demoClassForm.description}
+                  onChange={(e) => setDemoClassForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold resize-none"
+                />
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDemoClassModalOpen(false);
+                    setDemoClassForm({ title: '', videoUrl: '', description: '' });
+                  }}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 bg-primary hover:bg-primary-light disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    'Add Video'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Offer Modal */}
+      {isOfferModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">Upload Promo Offer Pop-up</h3>
+              <button
+                onClick={() => {
+                  setIsOfferModalOpen(false);
+                  setOfferTitle('');
+                  setOfferFile(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleAddOffer} className="p-6 space-y-4 text-left text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Offer Title / Name (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Monsoon Special 20% Discount"
+                  value={offerTitle}
+                  onChange={(e) => setOfferTitle(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Promo Image File *</label>
+                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center bg-slate-50 hover:bg-slate-100/50 transition-colors relative">
+                  <input
+                    type="file"
+                    required
+                    accept="image/*"
+                    onChange={(e) => setOfferFile(e.target.files[0])}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="space-y-2">
+                    <ImageIcon className="w-8 h-8 text-slate-400 mx-auto" />
+                    <p className="text-xs font-bold text-slate-600">
+                      {offerFile ? offerFile.name : 'Select or drop promotional image here'}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Accepted formats: JPG, PNG, WEBP (Max: 5MB)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOfferModalOpen(false);
+                    setOfferTitle('');
+                    setOfferFile(null);
+                  }}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploadingOffer}
+                  className="px-5 py-2 bg-primary hover:bg-primary-light disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  {isUploadingOffer ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading...
+                    </>
+                  ) : (
+                    'Upload Offer'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Change Password Modal */}
+      {isChangePasswordModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">Change Password</h3>
+              <button
+                onClick={() => {
+                  setIsChangePasswordModalOpen(false);
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setConfirmPassword('');
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleChangePassword} className="p-6 space-y-4 text-left text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Current Password *</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">New Password *</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Confirm New Password *</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsChangePasswordModalOpen(false);
+                    setCurrentPassword('');
+                    setNewPassword('');
+                    setConfirmPassword('');
+                  }}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isChangingPassword}
+                  className="px-5 py-2 bg-primary hover:bg-primary-light disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  {isChangingPassword ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating...
+                    </>
+                  ) : (
+                    'Change Password'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Course Block Modal */}
+      {isAddBlockModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">Customize Content Block ({selectedCourseName})</h3>
+              <button
+                onClick={() => {
+                  setIsAddBlockModalOpen(false);
+                  setAddBlockTitle('');
+                  setAddBlockContent('');
+                  setAddBlockFile(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleAddBlockSubmit} className="p-6 space-y-4 text-left text-xs">
+              
+              {/* Block Type Selection */}
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddBlockType('paragraph');
+                    setAddBlockFile(null);
+                    setAddBlockTitle('');
+                    setAddBlockContent('');
+                  }}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer ${
+                    addBlockType === 'paragraph'
+                      ? 'bg-primary/5 text-primary border-primary'
+                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100/50'
+                  }`}
+                >
+                  <FileText className="w-5 h-5" />
+                  <span>Upload Paragraph</span>
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddBlockType('image');
+                    setAddBlockTitle('');
+                    setAddBlockContent('');
+                    setAddBlockFile(null);
+                  }}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer ${
+                    addBlockType === 'image'
+                      ? 'bg-primary/5 text-primary border-primary'
+                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100/50'
+                  }`}
+                >
+                  <ImageIcon className="w-5 h-5" />
+                  <span>Upload Image</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddBlockType('card');
+                    setAddBlockTitle('');
+                    setAddBlockContent('');
+                    setAddBlockFile(null);
+                  }}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer ${
+                    addBlockType === 'card'
+                      ? 'bg-primary/5 text-primary border-primary'
+                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100/50'
+                  }`}
+                >
+                  <BookOpen className="w-5 h-5" />
+                  <span>Upload Card</span>
+                </button>
+              </div>
+
+              {/* Title input (Visible for Card and Paragraph, Optional for Image) */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">
+                  {addBlockType === 'image' ? 'Image Label / Title (Optional)' : 'Block Title *'}
+                </label>
+                <input
+                  type="text"
+                  required={addBlockType !== 'image'}
+                  placeholder={addBlockType === 'image' ? 'e.g. Batch Timings Graph' : 'e.g. Course Syllabus Overview'}
+                  value={addBlockTitle}
+                  onChange={(e) => setAddBlockTitle(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold"
+                />
+              </div>
+
+              {/* Content textarea (Visible for Card and Paragraph) */}
+              {addBlockType !== 'image' && (
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Block Paragraph Content *</label>
+                  <textarea
+                    required
+                    placeholder="Write detailed descriptions, timings, features..."
+                    rows="5"
+                    value={addBlockContent}
+                    onChange={(e) => setAddBlockContent(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-primary text-slate-700 font-semibold resize-none"
+                  />
+                </div>
+              )}
+
+              {/* Image Upload Input (Visible for Image and Card) */}
+              {addBlockType !== 'paragraph' && (
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    {addBlockType === 'image' ? 'Upload Image *' : 'Card Image Cover (Optional)'}
+                  </label>
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 text-center bg-slate-50 hover:bg-slate-100/50 transition-colors relative">
+                    <input
+                      type="file"
+                      required={addBlockType === 'image'}
+                      accept="image/*"
+                      onChange={(e) => setAddBlockFile(e.target.files[0])}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    <div className="space-y-2">
+                      <ImageIcon className="w-8 h-8 text-slate-400 mx-auto" />
+                      <p className="text-xs font-bold text-slate-600">
+                        {addBlockFile ? addBlockFile.name : 'Select or drop promotional image here'}
+                      </p>
+                      <p className="text-[10px] text-slate-400">Accepted formats: JPG, PNG, WEBP (Max: 5MB)</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddBlockModalOpen(false);
+                    setAddBlockTitle('');
+                    setAddBlockContent('');
+                    setAddBlockFile(null);
+                  }}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingBlock}
+                  className="px-5 py-2 bg-primary hover:bg-primary-light disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  {isAddingBlock ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Adding...
+                    </>
+                  ) : (
+                    'Add Block'
                   )}
                 </button>
               </div>

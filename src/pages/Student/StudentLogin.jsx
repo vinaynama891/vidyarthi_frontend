@@ -18,7 +18,7 @@ const StudentLogin = () => {
   // If already logged in, redirect to student dashboard
   useEffect(() => {
     if (token && user && user.role === 'student') {
-      navigate('/student/dashboard');
+      navigate(user.studentType === 'NotesOnly' ? '/student/notes-dashboard' : '/student/dashboard');
     }
   }, [token, user, navigate]);
 
@@ -36,7 +36,7 @@ const StudentLogin = () => {
     if (result.success) {
       if (result.role === 'student') {
         showToast('Login successful! Welcome to your Student Portal.', 'success');
-        navigate('/student/dashboard');
+        navigate(result.studentType === 'NotesOnly' ? '/student/notes-dashboard' : '/student/dashboard');
       } else {
         showToast('Only student credentials can log in here.', 'warning');
         navigate('/');

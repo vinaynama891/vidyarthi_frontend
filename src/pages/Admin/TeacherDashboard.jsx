@@ -11,6 +11,7 @@ import {
   DollarSign,
   ClipboardList,
   LogOut,
+  ArrowLeft,
   Plus,
   Loader2,
   BookOpen,
@@ -35,7 +36,7 @@ const TeacherDashboard = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState(null);
-  const [activeSection, setActiveSection] = useState('test-marks'); // 'test-marks' | 'attendance' | 'announcements'
+  const [activeSection, setActiveSection] = useState('attendance'); // 'test-marks' | 'attendance' | 'announcements'
 
   // Test Submission Form States
   const [selectedClass, setSelectedClass] = useState('');
@@ -151,6 +152,34 @@ const TeacherDashboard = () => {
     if (newDate > new Date()) return;
     setCurrentDate(newDate);
   };
+
+  const getSalaryStats = () => {
+    if (!profile || !profile.joiningDate) return { presentDays: 0, holidayDays: 0, salaryEarned: 0 };
+    
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const pad = (num) => num.toString().padStart(2, '0');
+    const monthPrefix = `${year}-${pad(month + 1)}`;
+    
+    const jDate = new Date(profile.joiningDate);
+    const joinDateStr = `${jDate.getFullYear()}-${pad(jDate.getMonth() + 1)}-${pad(jDate.getDate())}`;
+
+    // Filter myAttendanceHistory for logs in the selected month on/after joining date
+    const currentMonthLogs = myAttendanceHistory.filter(log => {
+      return log.date.startsWith(monthPrefix) && log.date >= joinDateStr;
+    });
+
+    const presentDays = currentMonthLogs.filter(log => log.status === 'present').length;
+    const holidayDays = currentMonthLogs.filter(log => log.status === 'holiday').length;
+    
+    const perDaySalary = Math.round((profile.salary || 0) / 30);
+    const salaryEarned = (presentDays + holidayDays) * perDaySalary;
+
+    return { presentDays, holidayDays, salaryEarned };
+  };
+
+  const { presentDays, holidayDays, salaryEarned } = getSalaryStats();
+  const perDaySalary = (profile && profile.salary) ? Math.round(profile.salary / 30) : 0;
 
   useEffect(() => {
     if (activeSection === 'announcements') {
@@ -342,11 +371,19 @@ const TeacherDashboard = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="text-right hidden sm:block">
+        <div className="flex items-center gap-3">
+          <div className="text-right hidden sm:block mr-1">
             <span className="text-xs text-slate-400 block font-medium">Faculty Member</span>
             <span className="text-sm font-bold text-slate-700">{profile.name}</span>
           </div>
+          <button
+            onClick={() => navigate('/')}
+            className="bg-slate-50 hover:bg-slate-100 border border-slate-150 hover:border-slate-200 text-slate-700 px-4 py-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
+            title="Back to Website"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Back to Website</span>
+          </button>
           <button
             onClick={handleLogout}
             className="bg-rose-50 hover:bg-rose-100 text-danger p-2.5 rounded-xl transition-all duration-200 cursor-pointer"
@@ -412,7 +449,9 @@ const TeacherDashboard = () => {
             </div>
             <div className="space-y-0.5">
               <h3 className="text-xs font-black text-slate-800 font-heading">Contract Details</h3>
-              <p className="text-[10px] text-slate-450 leading-tight">Salary and joining terms</p>
+              <p className="text-[10px] text-slate-450 leading-tight">
+                {profile.salary ? `Monthly: ₹${profile.salary.toLocaleString()} | Earned: ₹${salaryEarned.toLocaleString()}` : 'Salary and joining terms'}
+              </p>
               <span className="text-[9px] font-bold text-emerald-600 inline-block mt-2 hover:underline">
                 Open Details &rarr;
               </span>
@@ -536,7 +575,7 @@ const TeacherDashboard = () => {
                   className="w-full py-2.5 text-xs font-bold text-white bg-primary hover:bg-primary-light rounded-lg shadow transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {loadingStudents ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-                  Load Roster
+                  View Student
                 </button>
               </div>
             </div>
@@ -620,7 +659,7 @@ const TeacherDashboard = () => {
             {students.length === 0 && (
               <div className="text-slate-400 py-16 text-center text-xs font-semibold flex flex-col items-center gap-2 border border-dashed border-slate-150 rounded-2xl bg-slate-50/50">
                 <FileSpreadsheet className="w-10 h-10 text-slate-300" />
-                <p>Roster not loaded. Select class and click "Load Roster" to input exam marks.</p>
+                <p>Students list not loaded. Select class and click "View Student" to input exam marks.</p>
               </div>
             )}
           </div>
@@ -962,28 +1001,61 @@ const TeacherDashboard = () => {
               {activeModal === 'salary' && (
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-emerald-800">
+                    <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-100 text-emerald-800 text-left">
                       <span className="text-[9px] text-emerald-600 block font-bold uppercase tracking-wider">Monthly Salary</span>
                       <div className="flex items-center gap-0.5 mt-1">
-                        <span className="text-lg font-black font-stats leading-none">₹{profile.salary}</span>
+                        <span className="text-lg font-black font-stats leading-none">₹{profile.salary ? profile.salary.toLocaleString() : 0}</span>
                       </div>
                     </div>
 
-                    <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 text-blue-800">
-                      <span className="text-[9px] text-blue-600 block font-bold uppercase tracking-wider">Joining Date</span>
-                      <div className="flex items-center gap-1.5 mt-1.5 font-sans font-bold text-xs leading-none">
-                        <Calendar className="w-3.5 h-3.5 text-blue-500" />
-                        <span>{new Date(profile.joiningDate).toLocaleDateString('en-IN', { dateStyle: 'medium' })}</span>
+                    <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-100 text-blue-800 text-left">
+                      <span className="text-[9px] text-blue-600 block font-bold uppercase tracking-wider">Per Day Salary</span>
+                      <div className="flex items-center gap-0.5 mt-1">
+                        <span className="text-lg font-black font-stats leading-none">₹{perDaySalary.toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-slate-50 p-4 rounded-2xl space-y-2">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-violet-50/50 p-4 rounded-2xl border border-violet-100 text-violet-800 text-left">
+                      <span className="text-[9px] text-violet-600 block font-bold uppercase tracking-wider">Days Present (This Month)</span>
+                      <div className="flex items-center gap-0.5 mt-1">
+                        <span className="text-lg font-black font-stats leading-none">{presentDays} Days</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-sky-50/50 p-4 rounded-2xl border border-sky-100 text-sky-850 text-left">
+                      <span className="text-[9px] text-sky-600 block font-bold uppercase tracking-wider">Holidays (Paid Offs)</span>
+                      <div className="flex items-center gap-0.5 mt-1">
+                        <span className="text-lg font-black font-stats leading-none">{holidayDays} Days</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-teal-50/50 p-4 rounded-2xl border border-teal-100 text-teal-800 text-left">
+                      <span className="text-[9px] text-teal-600 block font-bold uppercase tracking-wider">Total Paid Days</span>
+                      <div className="flex items-center gap-0.5 mt-1">
+                        <span className="text-lg font-black font-stats leading-none">{presentDays + holidayDays} Days</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100 text-amber-800 text-left">
+                      <span className="text-[9px] text-amber-600 block font-bold uppercase tracking-wider">Salary Earned (This Month)</span>
+                      <div className="flex items-center gap-0.5 mt-1">
+                        <span className="text-lg font-black font-stats leading-none text-amber-700">₹{salaryEarned.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50 p-4 rounded-2xl space-y-2 text-left">
                     <h4 className="font-bold text-slate-700">Employment Terms:</h4>
                     <ul className="list-disc list-inside text-slate-500 space-y-1 font-semibold">
                       <li>Permanent Full-Time Faculty Contract</li>
                       <li>Salary disbursements processed on the 1st of every month</li>
                       <li>Authorized to request class roster data and post test scores</li>
+                      <li>Per-day salary computed based on standard billing month (30 days)</li>
+                      <li>Holidays and Sundays are included as paid working days</li>
                     </ul>
                   </div>
                 </div>
