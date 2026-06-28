@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastProvider } from './context/ToastContext';
 
@@ -11,11 +11,13 @@ import AdminDashboard from './pages/Admin/AdminDashboard';
 import StudentDashboard from './pages/Admin/StudentDashboard';
 import TeacherDashboard from './pages/Admin/TeacherDashboard';
 import EnquiryPage from './pages/Landing/EnquiryPage';
+import StudentLogin from './pages/Student/StudentLogin';
 
 
 // Protected Route Guard Component
-const ProtectedRoute = ({ children }) => {
-  const { token, loading } = useAuth();
+const ProtectedRoute = ({ children, allowedRoles }) => {
+  const { token, user, loading } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -26,8 +28,19 @@ const ProtectedRoute = ({ children }) => {
   }
 
   if (!token) {
-    // Redirect to login if not authenticated
+    // Redirect to student login if attempting to access student dashboard
+    if (location.pathname.startsWith('/student')) {
+      return <Navigate to="/student/login" replace />;
+    }
+    // Redirect to admin login for other routes
     return <Navigate to="/admin/login" replace />;
+  }
+
+  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    if (user.role === 'admin') return <Navigate to="/admin/dashboard" replace />;
+    if (user.role === 'teacher') return <Navigate to="/teacher/dashboard" replace />;
+    if (user.role === 'student') return <Navigate to="/student/dashboard" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return children;
@@ -43,13 +56,14 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/achievements" element={<AchievementsGallery />} />
             <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/student/login" element={<StudentLogin />} />
             <Route path="/enquiry" element={<EnquiryPage />} />
 
             {/* Protected Admin Routes */}
             <Route
               path="/admin/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['admin']}>
                   <AdminDashboard />
                 </ProtectedRoute>
               }
@@ -59,7 +73,7 @@ function App() {
             <Route
               path="/student/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['student']}>
                   <StudentDashboard />
                 </ProtectedRoute>
               }
@@ -71,7 +85,7 @@ function App() {
             <Route
               path="/teacher/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={['teacher']}>
                   <TeacherDashboard />
                 </ProtectedRoute>
               }

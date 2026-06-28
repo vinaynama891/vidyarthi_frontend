@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import ConfirmationModal from '../../components/ConfirmationModal';
 import {
   GraduationCap,
+  BookOpen,
   Users,
   UserCheck,
   Calendar,
@@ -30,7 +31,8 @@ import {
   Coins,
   Send,
   Loader2,
-  HelpCircle
+  HelpCircle,
+  Bell
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -58,6 +60,18 @@ const AdminDashboard = () => {
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [feeStructures, setFeeStructures] = useState([]);
+  const [studyMaterials, setStudyMaterials] = useState([]);
+  const [isStudyMaterialModalOpen, setIsStudyMaterialModalOpen] = useState(false);
+  const [studyMaterialTitle, setStudyMaterialTitle] = useState('');
+  const [studyMaterialDescription, setStudyMaterialDescription] = useState('');
+  const [studyMaterialClass, setStudyMaterialClass] = useState('');
+  const [studyMaterialFile, setStudyMaterialFile] = useState(null);
+  const [isUploadingStudyMaterial, setIsUploadingStudyMaterial] = useState(false);
+  const [selectedClassView, setSelectedClassView] = useState(null);
+  const [attendanceSubTab, setAttendanceSubTab] = useState('students');
+  const [selectedClassAttendance, setSelectedClassAttendance] = useState(null);
+  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceRegistry, setAttendanceRegistry] = useState({});
   const [feeRecords, setFeeRecords] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [testResults, setTestResults] = useState([]);
@@ -65,6 +79,7 @@ const AdminDashboard = () => {
   const [gallery, setGallery] = useState([]);
   const [broadcasts, setBroadcasts] = useState([]);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
+  const [isAnnouncementMode, setIsAnnouncementMode] = useState(false);
   const [broadcastForm, setBroadcastForm] = useState({
     title: '',
     description: '',
@@ -78,6 +93,8 @@ const AdminDashboard = () => {
   const [studentSearch, setStudentSearch] = useState('');
   const [studentClassFilter, setStudentClassFilter] = useState('');
   const [teacherSearch, setTeacherSearch] = useState('');
+  const [salaryMonth, setSalaryMonth] = useState((new Date().getMonth() + 1).toString());
+  const [salaryYear, setSalaryYear] = useState(new Date().getFullYear().toString());
   const [feeRecordSearch, setFeeRecordSearch] = useState('');
   const [expenseMonth, setExpenseMonth] = useState((new Date().getMonth() + 1).toString());
   const [expenseYear, setExpenseYear] = useState(new Date().getFullYear().toString());
@@ -372,7 +389,9 @@ const AdminDashboard = () => {
   const classesOptions = [
     'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
     'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10',
-    'Class 11', 'Class 12', 'BSTC', 'Rajasthan GK', 'Hindi Literature'
+    'Class 11 Arts', 'Class 11 Science Maths', 'Class 11 Science Bio',
+    'Class 12 Arts', 'Class 12 Science Maths', 'Class 12 Science Bio',
+    'BSTC', 'Rajasthan GK', 'Hindi Literature'
   ];
 
   // --- STUDENT FORM STATE ---
@@ -442,12 +461,17 @@ const AdminDashboard = () => {
     else if (activeTab === 'test-result') fetchTestResults();
     else if (activeTab === 'achievement') fetchAchievements();
     else if (activeTab === 'gallery') fetchGallery();
-    else if (activeTab === 'broadcast') {
+    else if (activeTab === 'broadcast' || activeTab === 'announcement') {
       fetchBroadcasts();
       fetchTeachers();
       fetchEnquiries();
     } else if (activeTab === 'enquiry') {
       fetchEnquiries();
+    } else if (activeTab === 'study-material') {
+      fetchStudyMaterials();
+    } else if (activeTab === 'attendance') {
+      fetchStudents();
+      fetchTeachers();
     }
   }, [activeTab]);
 
@@ -465,12 +489,12 @@ const AdminDashboard = () => {
     }
   }, [studentSearch, studentClassFilter]);
 
-  // Refetch teachers when search changes
+  // Refetch teachers when search, month, or year changes
   useEffect(() => {
     if (activeTab === 'teacher') {
       fetchTeachers();
     }
-  }, [teacherSearch]);
+  }, [teacherSearch, salaryMonth, salaryYear]);
 
   // Refetch fee records on search
   useEffect(() => {
@@ -485,6 +509,84 @@ const AdminDashboard = () => {
       fetchTestResults();
     }
   }, [testClassFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance') {
+      fetchAttendance();
+    }
+  }, [activeTab, attendanceDate, attendanceSubTab]);
+
+  const fetchAttendance = async () => {
+    try {
+      const logs = await apiFetch(`/api/attendance?date=${attendanceDate}&userType=${attendanceSubTab}`);
+      const newRegistry = { ...attendanceRegistry };
+      logs.forEach(log => {
+        const id = attendanceSubTab === 'students' ? log.studentId : log.teacherId;
+        newRegistry[`${attendanceDate}_${id}`] = log.status;
+      });
+      setAttendanceRegistry(newRegistry);
+    } catch (err) {
+      console.warn('Could not fetch attendance records:', err.message);
+    }
+  };
+
+  const handleSaveStudentAttendance = async () => {
+    try {
+      const classStudents = students.filter(s => s.class === selectedClassAttendance);
+      const records = classStudents.map(s => {
+        const key = `${attendanceDate}_${s.studentId}`;
+        return {
+          studentId: s.studentId,
+          status: attendanceRegistry[key] || 'present'
+        };
+      });
+
+      await apiFetch('/api/attendance/mark', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: attendanceDate,
+          userType: 'student',
+          records
+        })
+      });
+
+      showToast(`Attendance for ${selectedClassAttendance} submitted successfully!`, 'success');
+      setSelectedClassAttendance(null);
+    } catch (err) {
+      showToast(err.message || 'Failed to submit student attendance', 'error');
+    }
+  };
+
+  const handleSaveTeacherAttendance = async () => {
+    try {
+      const records = teachers.map(t => {
+        const key = `${attendanceDate}_${t._id}`;
+        let isBeforeJoining = false;
+        if (t.joiningDate) {
+          const jd = new Date(t.joiningDate);
+          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+          isBeforeJoining = attendanceDate < jdStr;
+        }
+        return {
+          teacherId: t._id,
+          status: isBeforeJoining ? 'absent' : (attendanceRegistry[key] || 'present')
+        };
+      });
+
+      await apiFetch('/api/attendance/mark', {
+        method: 'POST',
+        body: JSON.stringify({
+          date: attendanceDate,
+          userType: 'teacher',
+          records
+        })
+      });
+
+      showToast('Teacher attendance roster submitted successfully!', 'success');
+    } catch (err) {
+      showToast(err.message || 'Failed to submit teacher attendance', 'error');
+    }
+  };
 
   // API Call functions
   const fetchStats = async () => {
@@ -513,7 +615,7 @@ const AdminDashboard = () => {
   const fetchTeachers = async () => {
     try {
       setLoading(true);
-      const data = await apiFetch(`/api/teachers?search=${teacherSearch}`);
+      const data = await apiFetch(`/api/teachers?search=${teacherSearch}&month=${salaryMonth}&year=${salaryYear}`);
       setTeachers(data);
     } catch (err) {
       showToast(err.message, 'error');
@@ -600,6 +702,78 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchStudyMaterials = async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch('/api/study-materials');
+      setStudyMaterials(data);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateStudyMaterial = async (e) => {
+    e.preventDefault();
+    if (!studyMaterialTitle || !studyMaterialClass || !studyMaterialFile) {
+      showToast('Title, Target Class, and File are required', 'error');
+      return;
+    }
+
+    setIsUploadingStudyMaterial(true);
+    try {
+      const formData = new FormData();
+      formData.append('title', studyMaterialTitle);
+      formData.append('description', studyMaterialDescription);
+      formData.append('targetClass', studyMaterialClass);
+      formData.append('file', studyMaterialFile);
+
+      const response = await fetch(`${API_BASE_URL}/api/study-materials`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: formData
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.message || 'Failed to upload study material');
+      }
+
+      showToast('Study Material uploaded successfully', 'success');
+      setIsStudyMaterialModalOpen(false);
+      
+      // Reset form
+      setStudyMaterialTitle('');
+      setStudyMaterialDescription('');
+      setStudyMaterialClass('');
+      setStudyMaterialFile(null);
+      
+      fetchStudyMaterials();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsUploadingStudyMaterial(false);
+    }
+  };
+
+  const handleDeleteStudyMaterial = async (id) => {
+    try {
+      setLoading(true);
+      const res = await apiFetch(`/api/study-materials/${id}`, {
+        method: 'DELETE'
+      });
+      showToast(res.message || 'Study material deleted successfully', 'success');
+      fetchStudyMaterials();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const resetBroadcastForm = () => {
     setBroadcastForm({
       title: '',
@@ -634,6 +808,7 @@ const AdminDashboard = () => {
       formData.append('classes', JSON.stringify(broadcastForm.classes));
       formData.append('teachers', JSON.stringify(broadcastForm.teachers));
       formData.append('enquiries', JSON.stringify(broadcastForm.enquiries));
+      formData.append('isAnnouncement', isAnnouncementMode ? 'true' : 'false');
       if (broadcastForm.image) {
         formData.append('image', broadcastForm.image);
       }
@@ -643,7 +818,7 @@ const AdminDashboard = () => {
         body: formData
       });
 
-      showToast(res.message || 'Broadcast sent successfully via WhatsApp!', 'success');
+      showToast(res.message || (isAnnouncementMode ? 'Announcement posted successfully!' : 'Broadcast sent successfully via WhatsApp!'), 'success');
       setIsBroadcastModalOpen(false);
       resetBroadcastForm();
       fetchBroadcasts();
@@ -1099,6 +1274,8 @@ const AdminDashboard = () => {
     { id: 'achievement', label: 'Achievement', icon: Award },
     { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'broadcast', label: 'Broadcast', icon: Radio },
+    { id: 'announcement', label: 'Announcement', icon: Bell },
+    { id: 'study-material', label: 'Study Material', icon: BookOpen },
     { id: 'enquiry', label: 'Enquiries', icon: HelpCircle }
   ];
 
@@ -1414,7 +1591,7 @@ const AdminDashboard = () => {
               </div>
 
               {/* Filter Search */}
-              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="relative w-full sm:max-w-md">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
@@ -1424,6 +1601,43 @@ const AdminDashboard = () => {
                     placeholder="Search by teacher name, ID, or subject..."
                     className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 rounded-lg border border-slate-200 outline-none focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all text-slate-700"
                   />
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Salary Month:</span>
+                  <div>
+                    <select
+                      value={salaryMonth}
+                      onChange={(e) => setSalaryMonth(e.target.value)}
+                      className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 outline-none focus:bg-white focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="1">January</option>
+                      <option value="2">February</option>
+                      <option value="3">March</option>
+                      <option value="4">April</option>
+                      <option value="5">May</option>
+                      <option value="6">June</option>
+                      <option value="7">July</option>
+                      <option value="8">August</option>
+                      <option value="9">September</option>
+                      <option value="10">October</option>
+                      <option value="11">November</option>
+                      <option value="12">December</option>
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <select
+                      value={salaryYear}
+                      onChange={(e) => setSalaryYear(e.target.value)}
+                      className="px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 outline-none focus:bg-white focus:ring-1 focus:ring-primary cursor-pointer"
+                    >
+                      <option value="2024">2024</option>
+                      <option value="2025">2025</option>
+                      <option value="2026">2026</option>
+                      <option value="2027">2027</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -1445,7 +1659,10 @@ const AdminDashboard = () => {
                           <th className="px-6 py-4">Subject</th>
                           <th className="px-6 py-4">Assigned Classes</th>
                           <th className="px-6 py-4">Phone Number</th>
-                          <th className="px-6 py-4">Salary</th>
+                          <th className="px-6 py-4">Base Salary</th>
+                          <th className="px-6 py-4">Per Day Salary</th>
+                          <th className="px-6 py-4">Attendance (P/H)</th>
+                          <th className="px-6 py-4">Salary Earned</th>
                           <th className="px-6 py-4">Joining Date</th>
                           <th className="px-6 py-4 text-center">Actions</th>
                         </tr>
@@ -1467,6 +1684,12 @@ const AdminDashboard = () => {
                             </td>
                             <td className="px-6 py-4">{teacher.phone}</td>
                             <td className="px-6 py-4 font-stats">₹{teacher.salary.toLocaleString()}</td>
+                            <td className="px-6 py-4 font-stats">₹{(teacher.perDaySalary || Math.round(teacher.salary / 30)).toLocaleString()}</td>
+                            <td className="px-6 py-4 font-semibold">
+                              <span className="text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-md mr-1.5">{teacher.presentCount || 0} P</span>
+                              <span className="text-amber-600 font-bold bg-amber-50 px-2 py-0.5 rounded-md">{teacher.holidayCount || 0} H</span>
+                            </td>
+                            <td className="px-6 py-4 font-stats font-bold text-emerald-600">₹{(teacher.salaryEarned || 0).toLocaleString()}</td>
                             <td className="px-6 py-4 text-slate-400">
                               {new Date(teacher.joiningDate).toLocaleDateString('en-IN', {
                                 year: 'numeric',
@@ -2013,31 +2236,346 @@ const AdminDashboard = () => {
             </div>
           )}
 
-          {/* ==================== 9. ATTENDANCE PAGE (MOCK) ==================== */}
+          {/* ==================== 9. ATTENDANCE PAGE (STUDENTS & TEACHERS) ==================== */}
           {activeTab === 'attendance' && (
-            <div className="space-y-6 text-left">
-              <div>
-                <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Attendance Register</h2>
-                <p className="text-xs text-slate-400">Class attendance simulator logs.</p>
-              </div>
-
-              <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-premium text-center space-y-4">
-                <CalendarDays className="w-12 h-12 text-slate-350 mx-auto" />
-                <h4 className="text-base font-extrabold text-primary font-heading">Mark Digital Attendance</h4>
-                <p className="text-slate-500 text-xs max-w-sm mx-auto leading-relaxed">
-                  Select a class roster below to simulate or audit daily student attendance marks.
-                </p>
-                <div className="flex justify-center gap-3 pt-2">
-                  <select className="px-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold outline-none focus:ring-1 focus:ring-primary">
-                    {classesOptions.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
-                  <button onClick={() => showToast('Attendance marked successfully', 'success')} className="px-5 py-2 text-xs font-bold text-white bg-primary hover:bg-primary-light rounded-lg transition-colors cursor-pointer">
-                    Simulate Roll Call
-                  </button>
+            <div className="space-y-6 text-left animate-fadeIn">
+              {/* Heading */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="text-left space-y-1">
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Attendance Register</h2>
+                  <p className="text-xs text-slate-400">Track and manage daily attendance logs for students and teachers.</p>
+                </div>
+                
+                {/* Date Picker */}
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date:</label>
+                  <input
+                    type="date"
+                    value={attendanceDate}
+                    max={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setAttendanceDate(e.target.value)}
+                    className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary font-semibold"
+                  />
                 </div>
               </div>
+
+              {/* Sub-tabs Selection */}
+              <div className="flex border-b border-slate-250">
+                <button
+                  onClick={() => {
+                    setAttendanceSubTab('students');
+                    setSelectedClassAttendance(null);
+                  }}
+                  className={`py-3 px-6 text-xs font-black uppercase tracking-wider border-b-2 transition-all duration-200 cursor-pointer ${
+                    attendanceSubTab === 'students'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Student Attendance
+                </button>
+                <button
+                  onClick={() => setAttendanceSubTab('teachers')}
+                  className={`py-3 px-6 text-xs font-black uppercase tracking-wider border-b-2 transition-all duration-200 cursor-pointer ${
+                    attendanceSubTab === 'teachers'
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  Teacher Attendance
+                </button>
+              </div>
+
+              {/* ================= STUDENTS SECTION ================= */}
+              {attendanceSubTab === 'students' && (
+                <div className="space-y-6">
+                  {selectedClassAttendance === null ? (
+                    /* Classes Card Grid Selection */
+                    <div className="space-y-4">
+                      <div className="text-left space-y-1">
+                        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Select Class Stream</h3>
+                        <p className="text-xs text-slate-450 font-semibold">Choose a class below to view its roster and log attendance.</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+                        {classesOptions.map((cName) => {
+                          const classStudentsCount = students.filter(s => s.class === cName).length;
+                          return (
+                            <div
+                              key={cName}
+                              className="bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left"
+                            >
+                              <div>
+                                <div className="p-3 bg-indigo-50 text-indigo-650 rounded-2xl w-fit">
+                                  <Users className="w-5 h-5" />
+                                </div>
+                                <h4 className="text-sm font-extrabold text-slate-800 mt-4 font-heading">{cName}</h4>
+                                <span className="text-[11px] font-bold text-slate-400 mt-1 block">
+                                  {classStudentsCount} student{classStudentsCount !== 1 ? 's' : ''} enrolled
+                                </span>
+                              </div>
+                              
+                              <button
+                                onClick={() => setSelectedClassAttendance(cName)}
+                                className="w-full text-center py-2.5 mt-5 bg-slate-50 border border-slate-150 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                              >
+                                Open Register
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Students Attendance marking list */
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between">
+                        <button
+                          onClick={() => setSelectedClassAttendance(null)}
+                          className="text-xs font-bold text-secondary hover:text-secondary-dark flex items-center gap-1 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-all"
+                        >
+                          &larr; Back to Classes
+                        </button>
+                        <span className="bg-primary/5 text-primary border border-primary/10 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase">
+                          Class: {selectedClassAttendance}
+                        </span>
+                      </div>
+
+                      {(() => {
+                        const classStudents = students.filter(s => s.class === selectedClassAttendance);
+                        
+                        if (classStudents.length === 0) {
+                          return (
+                            <div className="text-slate-450 py-20 text-center text-sm font-semibold border border-dashed border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-center gap-3">
+                              <Users className="w-10 h-10 text-slate-300" />
+                              <p>No students enrolled in {selectedClassAttendance} yet.</p>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-4">
+                            <div className="overflow-x-auto border border-slate-150 rounded-2xl bg-white shadow-premium">
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                    <th className="px-6 py-4 text-center w-12">S.No.</th>
+                                    <th className="px-6 py-4">Student ID</th>
+                                    <th className="px-6 py-4">Student Name</th>
+                                    <th className="px-6 py-4 text-center w-72">Attendance Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-650">
+                                  {classStudents.map((s, idx) => {
+                                    const registryKey = `${attendanceDate}_${s.studentId}`;
+                                    const currentStatus = attendanceRegistry[registryKey] || 'present';
+                                    
+                                    return (
+                                      <tr key={s._id} className="hover:bg-slate-50/30 transition-colors">
+                                        <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                                        <td className="px-6 py-4 text-primary font-stats font-bold">{s.studentId}</td>
+                                        <td className="px-6 py-4 font-bold text-slate-800">{s.name}</td>
+                                        <td className="px-6 py-4 text-center">
+                                          <div className="flex items-center justify-center gap-4">
+                                            {/* Present */}
+                                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                              <input
+                                                type="radio"
+                                                name={`status_${s.studentId}`}
+                                                value="present"
+                                                checked={currentStatus === 'present'}
+                                                onChange={() => setAttendanceRegistry(prev => ({
+                                                  ...prev,
+                                                  [registryKey]: 'present'
+                                                }))}
+                                                className="accent-emerald-600"
+                                              />
+                                              <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Present</span>
+                                            </label>
+
+                                            {/* Absent */}
+                                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                              <input
+                                                type="radio"
+                                                name={`status_${s.studentId}`}
+                                                value="absent"
+                                                checked={currentStatus === 'absent'}
+                                                onChange={() => setAttendanceRegistry(prev => ({
+                                                  ...prev,
+                                                  [registryKey]: 'absent'
+                                                }))}
+                                                className="accent-rose-600"
+                                              />
+                                              <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">Absent</span>
+                                            </label>
+
+                                            {/* Holiday */}
+                                            <label className="flex items-center gap-1.5 cursor-pointer">
+                                              <input
+                                                type="radio"
+                                                name={`status_${s.studentId}`}
+                                                value="holiday"
+                                                checked={currentStatus === 'holiday'}
+                                                onChange={() => setAttendanceRegistry(prev => ({
+                                                  ...prev,
+                                                  [registryKey]: 'holiday'
+                                                }))}
+                                                className="accent-amber-600"
+                                              />
+                                              <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">Holiday</span>
+                                            </label>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+
+                            {/* Submit Bar */}
+                            <div className="flex justify-end gap-3 pt-2">
+                              <button
+                                onClick={() => setSelectedClassAttendance(null)}
+                                className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={handleSaveStudentAttendance}
+                                className="px-5 py-2.5 bg-primary hover:bg-primary-light text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                              >
+                                Submit Attendance Roster
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ================= TEACHERS SECTION ================= */}
+              {attendanceSubTab === 'teachers' && (
+                <div className="space-y-6">
+                  {teachers.length === 0 ? (
+                    <div className="text-slate-450 py-20 text-center text-sm font-semibold border border-dashed border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-center gap-3">
+                      <UserCheck className="w-10 h-10 text-slate-300" />
+                      <p>No teachers registered yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="text-left space-y-1">
+                        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Teacher Roster Attendance</h3>
+                        <p className="text-xs text-slate-455 font-semibold">Track daily present, absent, or holiday state logs for teaching staff.</p>
+                      </div>
+
+                      <div className="overflow-x-auto border border-slate-150 rounded-2xl bg-white shadow-premium">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              <th className="px-6 py-4 text-center w-12">S.No.</th>
+                              <th className="px-6 py-4">Teacher ID</th>
+                              <th className="px-6 py-4">Teacher Name</th>
+                              <th className="px-6 py-4">Subject</th>
+                              <th className="px-6 py-4 text-center w-72">Attendance Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-650">
+                            {teachers.map((t, idx) => {
+                              const registryKey = `${attendanceDate}_${t._id}`;
+                              let isBeforeJoining = false;
+                              if (t.joiningDate) {
+                                const jd = new Date(t.joiningDate);
+                                const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                                isBeforeJoining = attendanceDate < jdStr;
+                              }
+                              const currentStatus = isBeforeJoining ? 'absent' : (attendanceRegistry[registryKey] || 'present');
+                              
+                              return (
+                                <tr key={t._id} className="hover:bg-slate-50/30 transition-colors">
+                                  <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                                  <td className="px-6 py-4 text-primary font-stats font-bold">{t.teacherId || `T-${t._id.toString().substring(18).toUpperCase()}`}</td>
+                                  <td className="px-6 py-4 font-bold text-slate-800">{t.name}</td>
+                                  <td className="px-6 py-4 text-slate-450">{t.subject || 'General'}</td>
+                                  <td className="px-6 py-4 text-center">
+                                    {isBeforeJoining ? (
+                                      <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-2.5 py-1 rounded-md">
+                                        Not Joined Yet (Auto-Absent)
+                                      </span>
+                                    ) : (
+                                      <div className="flex items-center justify-center gap-4">
+                                        {/* Present */}
+                                        <label className="flex items-center gap-1.5 cursor-pointer">
+                                          <input
+                                            type="radio"
+                                            name={`status_t_${t._id}`}
+                                            value="present"
+                                            checked={currentStatus === 'present'}
+                                            onChange={() => setAttendanceRegistry(prev => ({
+                                              ...prev,
+                                              [registryKey]: 'present'
+                                            }))}
+                                            className="accent-emerald-600"
+                                          />
+                                          <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Present</span>
+                                        </label>
+
+                                        {/* Absent */}
+                                        <label className="flex items-center gap-1.5 cursor-pointer">
+                                          <input
+                                            type="radio"
+                                            name={`status_t_${t._id}`}
+                                            value="absent"
+                                            checked={currentStatus === 'absent'}
+                                            onChange={() => setAttendanceRegistry(prev => ({
+                                              ...prev,
+                                              [registryKey]: 'absent'
+                                            }))}
+                                            className="accent-rose-600"
+                                          />
+                                          <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">Absent</span>
+                                        </label>
+
+                                        {/* Holiday */}
+                                        <label className="flex items-center gap-1.5 cursor-pointer">
+                                          <input
+                                            type="radio"
+                                            name={`status_t_${t._id}`}
+                                            value="holiday"
+                                            checked={currentStatus === 'holiday'}
+                                            onChange={() => setAttendanceRegistry(prev => ({
+                                              ...prev,
+                                              [registryKey]: 'holiday'
+                                            }))}
+                                            className="accent-amber-600"
+                                          />
+                                          <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">Holiday</span>
+                                        </label>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Submit Bar */}
+                      <div className="flex justify-end gap-3 pt-2">
+                        <button
+                          className="px-5 py-2.5 bg-primary hover:bg-primary-light text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                          onClick={handleSaveTeacherAttendance}
+                        >
+                          Submit Teacher Attendance
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -2051,7 +2589,7 @@ const AdminDashboard = () => {
                   <p className="text-xs text-slate-400">Broadcast official messages and alerts directly to student and teacher WhatsApp numbers.</p>
                 </div>
                 <button
-                  onClick={() => { resetBroadcastForm(); setIsBroadcastModalOpen(true); }}
+                  onClick={() => { setIsAnnouncementMode(false); resetBroadcastForm(); setIsBroadcastModalOpen(true); }}
                   className="px-5 py-3 text-sm font-bold text-white bg-primary hover:bg-primary-light shadow-md hover:shadow-lg rounded-xl flex items-center gap-2 cursor-pointer shrink-0"
                 >
                   <Plus className="w-5 h-5" /> Send New Broadcast
@@ -2069,13 +2607,13 @@ const AdminDashboard = () => {
                   <div className="flex justify-center items-center py-20 bg-white rounded-2xl border border-slate-100 shadow-premium">
                     <Loader2 className="w-8 h-8 text-primary animate-spin" />
                   </div>
-                ) : broadcasts.length === 0 ? (
+                ) : broadcasts.filter(b => !b.isAnnouncement).length === 0 ? (
                   <div className="text-slate-400 py-20 text-center text-sm font-medium border border-dashed border-slate-200 rounded-2xl bg-white">
                     No announcement broadcasts sent yet.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {broadcasts.map((b) => {
+                    {broadcasts.filter(b => !b.isAnnouncement).map((b) => {
                       const imageSrc = b.imageUrl && (b.imageUrl.startsWith('http') ? b.imageUrl : `${API_BASE_URL}${b.imageUrl}`);
                       return (
                         <div
@@ -2178,6 +2716,132 @@ const AdminDashboard = () => {
             </div>
           )}
 
+          {/* ==================== ANNOUNCEMENT PAGE ==================== */}
+          {activeTab === 'announcement' && (
+            <div className="space-y-6 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Web Announcements</h2>
+                  <p className="text-xs text-slate-400">Post announcements directly to the student dashboard (without sending WhatsApp messages).</p>
+                </div>
+                <button
+                  onClick={() => { setIsAnnouncementMode(true); resetBroadcastForm(); setIsBroadcastModalOpen(true); }}
+                  className="px-5 py-3 text-sm font-bold text-white bg-primary hover:bg-primary-light shadow-md hover:shadow-lg rounded-xl flex items-center gap-2 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-5 h-5" /> Post New Announcement
+                </button>
+              </div>
+
+              {/* Announcements List */}
+              <div className="space-y-4">
+                <h3 className="text-md font-bold text-primary font-heading relative pl-3.5">
+                  Announcement Logs History
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-3 bg-secondary rounded-full" />
+                </h3>
+
+                {loading ? (
+                  <div className="flex justify-center items-center py-20 bg-white rounded-2xl border border-slate-100 shadow-premium">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  </div>
+                ) : broadcasts.filter(b => b.isAnnouncement).length === 0 ? (
+                  <div className="text-slate-400 py-20 text-center text-sm font-medium border border-dashed border-slate-200 rounded-2xl bg-white">
+                    No announcements posted yet.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {broadcasts.filter(b => b.isAnnouncement).map((b) => {
+                      const imageSrc = b.imageUrl && (b.imageUrl.startsWith('http') ? b.imageUrl : `${API_BASE_URL}${b.imageUrl}`);
+                      return (
+                        <div
+                          key={b._id}
+                          className="bg-white rounded-2xl p-6 border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between"
+                        >
+                          <div className="space-y-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <h4 className="text-base font-extrabold text-primary font-heading leading-tight">{b.title}</h4>
+                                <span className="text-[10px] text-slate-400 font-semibold mt-1 block">
+                                  Posted on: {new Date(b.sentAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                                </span>
+                              </div>
+                              <span className="bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0">
+                                Web Only
+                              </span>
+                            </div>
+
+                            {imageSrc && (
+                              imageSrc.toLowerCase().includes('.pdf') ? (
+                                <a
+                                  href={imageSrc}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-3 p-4 bg-rose-50 hover:bg-rose-100/70 border border-rose-100 rounded-xl text-rose-700 font-bold transition-all"
+                                >
+                                  <FileText className="w-8 h-8 text-rose-500 shrink-0" />
+                                  <div className="text-left">
+                                    <p className="text-xs font-extrabold truncate max-w-[200px]">View Attachment (PDF)</p>
+                                    <span className="text-[9px] text-rose-400 font-semibold">Click to open document</span>
+                                  </div>
+                                </a>
+                              ) : (
+                                <div className="w-full h-40 rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
+                                  <img src={imageSrc} alt="Announcement Attachment" className="w-full h-full object-cover animate-fade-in" />
+                                </div>
+                              )
+                            )}
+
+                            <p className="text-slate-600 text-xs leading-relaxed font-medium whitespace-pre-wrap">
+                              {b.description}
+                            </p>
+
+                            {/* Target Badges */}
+                            <div className="space-y-2 pt-2 border-t border-slate-50">
+                              <div className="flex flex-wrap gap-1.5 items-center">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Targets:</span>
+                                {b.targets.classes?.length > 0 && (
+                                  <span className="bg-primary/5 text-primary px-2 py-0.5 rounded text-[9px] font-extrabold border border-primary/10">
+                                    {b.targets.classes.length} Classes
+                                  </span>
+                                )}
+                                {b.targets.teachers?.length > 0 && (
+                                  <span className="bg-secondary/10 text-secondary px-2 py-0.5 rounded text-[9px] font-extrabold border border-secondary/10">
+                                    {b.targets.teachers.length} Teachers
+                                  </span>
+                                )}
+                                {b.targets.enquiries?.length > 0 && (
+                                  <span className="bg-amber-50 text-amber-600 px-2 py-0.5 rounded text-[9px] font-extrabold border border-amber-100">
+                                    {b.targets.enquiries.length} Enquiries
+                                  </span>
+                                )}
+                                {(!b.targets.classes?.length && !b.targets.teachers?.length && !b.targets.enquiries?.length) && (
+                                  <span className="text-slate-400 italic text-[10px]">None</span>
+                                )}
+                              </div>
+                              
+                              <div className="text-[10px] text-slate-400 font-semibold line-clamp-1">
+                                {[
+                                  ...(b.targets.classes || []),
+                                  ...(b.targets.teachers || []).map(tid => {
+                                    const tObj = teachers.find(t => t._id === tid);
+                                    return tObj ? tObj.name : tid;
+                                  }),
+                                  ...(b.targets.enquiries || []).map(eid => {
+                                    const eObj = enquiryList.find(e => e._id === eid);
+                                    return eObj ? `${eObj.studentName} (Enquiry)` : eid;
+                                  })
+                                ].join(', ')}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'enquiry' && (
             <div className="space-y-8 animate-fadeIn text-left">
               {/* Heading */}
@@ -2253,6 +2917,210 @@ const AdminDashboard = () => {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'study-material' && (
+            <div className="space-y-8 animate-fadeIn text-left">
+              {/* Heading */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="text-left space-y-1">
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Study Materials Management</h2>
+                  <p className="text-xs text-slate-400">Manage, organize, and upload worksheets and syllabus notes by course categories.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setStudyMaterialClass('');
+                    setIsStudyMaterialModalOpen(true);
+                  }}
+                  className="bg-primary hover:bg-primary-light text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 self-start sm:self-auto shadow-md"
+                >
+                  <Plus className="w-4 h-4" /> Upload Material
+                </button>
+              </div>
+
+              {loading && studyMaterials.length === 0 ? (
+                <div className="flex justify-center items-center py-20">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+              ) : selectedClassView ? (
+                /* ============================================== */
+                /* VIEWING MATERIALS FOR A SPECIFIC CLASS/COURSE */
+                /* ============================================== */
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setSelectedClassView(null)}
+                      className="text-xs font-bold text-secondary hover:text-secondary-dark flex items-center gap-1 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-all"
+                    >
+                      &larr; Back to Courses
+                    </button>
+                    <span className="bg-primary/5 text-primary border border-primary/10 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase">
+                      Category: {selectedClassView}
+                    </span>
+                  </div>
+
+                  <div className="text-left space-y-1">
+                    <h3 className="text-lg font-extrabold text-slate-800 font-heading">
+                      Uploaded files for {selectedClassView}
+                    </h3>
+                    <p className="text-xs text-slate-405">Showing all study guides, assignment sheets, and coursework notes.</p>
+                  </div>
+
+                  {(() => {
+                    const filtered = studyMaterials.filter(mat => mat.targetClass === selectedClassView);
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="text-slate-450 py-20 text-center text-sm font-semibold border border-dashed border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-center gap-3">
+                          <BookOpen className="w-10 h-10 text-slate-300" />
+                          <p>No study materials uploaded for {selectedClassView} yet.</p>
+                          <button
+                            onClick={() => {
+                              setStudyMaterialClass(selectedClassView);
+                              setIsStudyMaterialModalOpen(true);
+                            }}
+                            className="bg-primary hover:bg-primary-light text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                          >
+                            Upload first file
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+                        {filtered.map((mat) => {
+                          const downloadUrl = mat.fileUrl.startsWith('http') ? mat.fileUrl : `${API_BASE_URL}${mat.fileUrl}`;
+                          return (
+                            <div
+                              key={mat._id}
+                              className="bg-white border border-slate-100 rounded-2xl p-6 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between"
+                            >
+                              <div className="space-y-3">
+                                <span className="text-[10px] text-slate-400 font-bold font-stats block">
+                                  Uploaded on: {new Date(mat.uploadedAt).toLocaleDateString('en-IN', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </span>
+                                <h3 className="text-sm font-bold text-slate-800 leading-tight">{mat.title}</h3>
+                                {mat.description && (
+                                  <p className="text-xs text-slate-550 leading-normal line-clamp-3">{mat.description}</p>
+                                )}
+                              </div>
+
+                              <div className="border-t border-slate-50 pt-4 mt-5 flex items-center justify-between">
+                                <a
+                                  href={downloadUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-secondary hover:underline text-xs font-bold flex items-center gap-1"
+                                >
+                                  <FileText className="w-4 h-4" /> View / Download
+                                </a>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm('Are you sure you want to delete this study material?')) {
+                                      handleDeleteStudyMaterial(mat._id);
+                                    }
+                                  }}
+                                  className="bg-rose-50 hover:bg-rose-100 text-danger p-2 rounded-lg transition-colors cursor-pointer"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                /* ============================================== */
+                /* CATEGORY COURSE CARDS GRID VIEW */
+                /* ============================================== */
+                <div className="space-y-6">
+                  <div className="text-left space-y-1">
+                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Course Categories</h3>
+                    <p className="text-xs text-slate-450 font-semibold">Select a course category below to view and manage its materials, or add files directly.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    {/* All Classes (Global) Card */}
+                    {(() => {
+                      const count = studyMaterials.filter(mat => mat.targetClass === 'All').length;
+                      return (
+                        <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left">
+                          <div>
+                            <div className="p-3 bg-slate-50 text-slate-600 rounded-2xl w-fit">
+                              <BookOpen className="w-5 h-5" />
+                            </div>
+                            <h4 className="text-sm font-extrabold text-primary mt-4 font-heading">All Classes (Global)</h4>
+                            <span className="text-[11px] font-bold text-slate-400 mt-1 block">
+                              {count} file{count !== 1 ? 's' : ''} uploaded
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-6 pt-4 border-t border-slate-50">
+                            <button
+                              onClick={() => setSelectedClassView('All')}
+                              className="w-full text-center py-2 bg-slate-50 border border-slate-150 hover:bg-slate-100 text-slate-700 text-[10px] font-bold rounded-xl transition-all cursor-pointer"
+                            >
+                              View Files
+                            </button>
+                            <button
+                              onClick={() => {
+                                setStudyMaterialClass('All');
+                                setIsStudyMaterialModalOpen(true);
+                              }}
+                              className="w-full text-center py-2 bg-primary hover:bg-primary-light text-white text-[10px] font-bold rounded-xl shadow-sm transition-all cursor-pointer"
+                            >
+                              Upload
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Classes Options Cards */}
+                    {classesOptions.map((cName) => {
+                      const count = studyMaterials.filter(mat => mat.targetClass === cName).length;
+                      return (
+                        <div key={cName} className="bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left">
+                          <div>
+                            <div className="p-3 bg-indigo-50 text-indigo-650 rounded-2xl w-fit">
+                              <BookOpen className="w-5 h-5" />
+                            </div>
+                            <h4 className="text-sm font-extrabold text-slate-800 mt-4 font-heading">{cName}</h4>
+                            <span className="text-[11px] font-bold text-slate-400 mt-1 block">
+                              {count} file{count !== 1 ? 's' : ''} uploaded
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 mt-6 pt-4 border-t border-slate-50">
+                            <button
+                              onClick={() => setSelectedClassView(cName)}
+                              className="w-full text-center py-2 bg-slate-50 border border-slate-150 hover:bg-slate-100 text-slate-700 text-[10px] font-bold rounded-xl transition-all cursor-pointer"
+                            >
+                              View Files
+                            </button>
+                            <button
+                              onClick={() => {
+                                setStudyMaterialClass(cName);
+                                setIsStudyMaterialModalOpen(true);
+                              }}
+                              className="w-full text-center py-2 bg-primary hover:bg-primary-light text-white text-[10px] font-bold rounded-xl shadow-sm transition-all cursor-pointer"
+                            >
+                              Upload
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -3018,7 +3886,7 @@ const AdminDashboard = () => {
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
               <h3 className="text-lg font-bold text-primary font-heading">
-                Send WhatsApp Announcement
+                {isAnnouncementMode ? 'Post Web Announcement' : 'Send WhatsApp Announcement'}
               </h3>
               <button
                 onClick={() => { setIsBroadcastModalOpen(false); resetBroadcastForm(); }}
@@ -3031,7 +3899,9 @@ const AdminDashboard = () => {
             {/* Modal Form */}
             <form onSubmit={handleSendBroadcast} className="p-6 space-y-5 text-left text-xs max-h-[75vh] overflow-y-auto">
               <div className="space-y-1">
-                <label className="font-bold text-slate-500 uppercase tracking-wider block">Message Title * (Compulsory)</label>
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">
+                  {isAnnouncementMode ? 'Announcement Title * (Compulsory)' : 'Message Title * (Compulsory)'}
+                </label>
                 <input
                   type="text"
                   required
@@ -3043,12 +3913,14 @@ const AdminDashboard = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="font-bold text-slate-500 uppercase tracking-wider block">Message Description * (Compulsory)</label>
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">
+                  {isAnnouncementMode ? 'Announcement Description * (Compulsory)' : 'Message Description * (Compulsory)'}
+                </label>
                 <textarea
                   required
                   value={broadcastForm.description}
                   onChange={(e) => setBroadcastForm((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder="Type WhatsApp message contents here..."
+                  placeholder={isAnnouncementMode ? 'Type announcement contents here...' : 'Type WhatsApp message contents here...'}
                   rows="4"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
                 />
@@ -3231,7 +4103,7 @@ const AdminDashboard = () => {
                   className="px-5 py-2 text-white bg-primary hover:bg-primary-light rounded-lg shadow font-semibold cursor-pointer flex items-center gap-1.5"
                 >
                   {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Send Broadcast
+                  {isAnnouncementMode ? 'Post Announcement' : 'Send Broadcast'}
                 </button>
               </div>
             </form>
@@ -3498,6 +4370,117 @@ const AdminDashboard = () => {
           </div>
         );
       })()}
+
+      {/* Upload Study Material Modal */}
+      {isStudyMaterialModalOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-8 transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-base font-extrabold text-primary font-heading font-sans uppercase tracking-wider">
+                Upload New Study Material
+              </h3>
+              <button
+                onClick={() => {
+                  setIsStudyMaterialModalOpen(false);
+                  setStudyMaterialTitle('');
+                  setStudyMaterialDescription('');
+                  setStudyMaterialClass('');
+                  setStudyMaterialFile(null);
+                }}
+                className="p-1.5 hover:bg-slate-200 text-slate-500 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleCreateStudyMaterial} className="p-6 space-y-4 text-left">
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Material Title</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Chapter 1 Practice Sheet"
+                  value={studyMaterialTitle}
+                  onChange={(e) => setStudyMaterialTitle(e.target.value)}
+                  className="w-full py-2.5 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary transition-all font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Description (Optional)</label>
+                <textarea
+                  placeholder="Provide details about the sheet or instructions for students..."
+                  rows="3"
+                  value={studyMaterialDescription}
+                  onChange={(e) => setStudyMaterialDescription(e.target.value)}
+                  className="w-full py-2.5 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary transition-all font-semibold resize-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Target Class</label>
+                <select
+                  required
+                  value={studyMaterialClass}
+                  onChange={(e) => setStudyMaterialClass(e.target.value)}
+                  className="w-full py-2.5 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary transition-all font-semibold"
+                >
+                  <option value="">Select Target Class</option>
+                  <option value="All">All Classes</option>
+                  {classesOptions.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">PDF or Image File</label>
+                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center bg-slate-50 hover:bg-slate-100/50 transition-colors relative">
+                  <input
+                    type="file"
+                    required
+                    accept=".pdf,image/*"
+                    onChange={(e) => setStudyMaterialFile(e.target.files[0])}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <div className="space-y-1">
+                    <FileText className="w-8 h-8 text-slate-400 mx-auto" />
+                    <p className="text-xs font-bold text-slate-600">
+                      {studyMaterialFile ? studyMaterialFile.name : 'Select or drop PDF / Image here'}
+                    </p>
+                    <p className="text-[10px] text-slate-400">Accepted formats: .pdf, .jpg, .png (Max: 10MB)</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsStudyMaterialModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploadingStudyMaterial}
+                  className="px-5 py-2 bg-primary hover:bg-primary-light disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isUploadingStudyMaterial ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Uploading...
+                    </>
+                  ) : (
+                    'Upload file'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal component */}
       <ConfirmationModal

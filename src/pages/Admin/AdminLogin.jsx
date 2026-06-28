@@ -8,7 +8,7 @@ import logo from '../../assets/logo.png';
 
 const AdminLogin = () => {
   const navigate = useNavigate();
-  const { login, token } = useAuth();
+  const { login, token, user } = useAuth();
   const { showToast } = useToast();
 
   const [email, setEmail] = useState('');
@@ -16,12 +16,18 @@ const AdminLogin = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // If already logged in, redirect to dashboard
+  // If already logged in, redirect to respective dashboard
   useEffect(() => {
-    if (token) {
-      navigate('/admin/dashboard');
+    if (token && user) {
+      if (user.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else if (user.role === 'teacher') {
+        navigate('/teacher/dashboard');
+      } else if (user.role === 'student') {
+        navigate('/student/dashboard');
+      }
     }
-  }, [token, navigate]);
+  }, [token, user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,7 +42,13 @@ const AdminLogin = () => {
 
     if (result.success) {
       showToast('Welcome back! Login successful.', 'success');
-      navigate('/admin/dashboard');
+      if (result.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else if (result.role === 'teacher') {
+        navigate('/teacher/dashboard');
+      } else if (result.role === 'student') {
+        navigate('/student/dashboard');
+      }
     } else {
       showToast(result.message || 'Invalid credentials', 'error');
     }
@@ -71,19 +83,19 @@ const AdminLogin = () => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Email */}
+          {/* Email / ID */}
           <div className="space-y-1.5 text-left">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Email Address</label>
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Email Address / Teacher ID</label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
                 <Mail className="w-5 h-5" />
               </span>
               <input
-                type="email"
+                type="text"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@vidyarthi.com"
+                placeholder="e.g. admin@vidyarthi.com or VIDYARTHI@10"
                 className="w-full pl-11 pr-4 py-3.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all outline-none text-slate-800 placeholder-slate-400"
               />
             </div>
@@ -137,8 +149,8 @@ const AdminLogin = () => {
         <div className="mt-8 pt-6 border-t border-slate-100 text-center">
           <p className="text-slate-400 text-[11px] leading-relaxed">
             Demo Credentials:<br />
-            Email: <strong className="text-slate-600 font-semibold">admin@vidyarthi.com</strong><br />
-            Password: <strong className="text-slate-600 font-semibold">admin123</strong>
+            Admin Email: <strong className="text-slate-600 font-semibold">admin@vidyarthi.com</strong> / Password: <strong className="text-slate-600 font-semibold font-sans">admin123</strong><br />
+            Teacher Login ID: <strong className="text-slate-600 font-semibold">Vidyarthi@10</strong> / Password: <strong className="text-slate-600 font-semibold font-sans">Vidyarthi@10</strong>
           </p>
         </div>
 
