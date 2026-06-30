@@ -457,9 +457,10 @@ const AdminDashboard = () => {
   const classesOptions = [
     'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
     'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10',
-    'Class 11 Arts', 'Class 11 Science Maths', 'Class 11 Science Bio',
-    'Class 12 Arts', 'Class 12 Science Maths', 'Class 12 Science Bio',
-    'BSTC', 'Rajasthan GK', 'Hindi Literature'
+    'Class 11 Arts', 'Class 11 Science Bio', 'Class 11 Science Maths',
+    'Class 12 Arts', 'Class 12 Science Bio', 'Class 12 Science Maths',
+    'BSTC', 'Rajasthan GK', 'Hindi Literature',
+    '5TH JNV', '9TH JNV', 'LDC', 'CET', 'VDO'
   ];
 
   // --- STUDENT FORM STATE ---
@@ -719,7 +720,15 @@ const AdminDashboard = () => {
   const fetchFeeStructures = async () => {
     try {
       const data = await apiFetch('/api/fees/structure');
-      setFeeStructures(data);
+      // Sort classes based on classesOptions index order
+      const sortedData = [...data].sort((a, b) => {
+        const indexA = classesOptions.indexOf(a.class);
+        const indexB = classesOptions.indexOf(b.class);
+        if (indexA === -1) return 1;
+        if (indexB === -1) return -1;
+        return indexA - indexB;
+      });
+      setFeeStructures(sortedData);
     } catch (err) {
       showToast(err.message, 'error');
     }
