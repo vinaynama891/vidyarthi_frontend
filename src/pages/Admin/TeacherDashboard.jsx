@@ -359,7 +359,7 @@ const TeacherDashboard = () => {
     <div className="min-h-screen bg-bgLight flex flex-col font-sans">
       {/* Top Header */}
       <header className="bg-white border-b border-slate-100 sticky top-0 z-30 shadow-sm flex items-center justify-between px-6 h-20 shrink-0">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-all" onClick={() => navigate('/')}>
           <img src={logo} alt="Vidyarthi Classes Logo" className="w-10 h-10 object-contain" />
           <div>
             <h1 className="text-lg sm:text-xl font-bold text-primary font-heading leading-none block">

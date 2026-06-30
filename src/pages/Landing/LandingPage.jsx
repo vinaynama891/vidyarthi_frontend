@@ -425,11 +425,11 @@ const LandingPage = () => {
 
             {/* Visual Student Illustration */}
             <div className="relative flex justify-center lg:justify-end">
-              <div className="relative w-full max-w-lg aspect-[4/3] sm:aspect-square rounded-3xl overflow-hidden shadow-2xl border border-slate-100/50 bg-white/40 backdrop-blur-xs p-2 hover:scale-[1.02] transition-transform duration-500">
+              <div className="relative w-full max-w-md aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl border border-slate-100/50 bg-white/40 backdrop-blur-xs p-2 hover:scale-[1.02] transition-transform duration-500">
                 <img
                   src={heroImage}
                   alt="Kota's Premier Coaching Institute"
-                  className="w-full h-full object-cover rounded-2xl"
+                  className="w-full h-full object-contain rounded-2xl"
                 />
               </div>
             </div>
@@ -767,7 +767,6 @@ const LandingPage = () => {
                     <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                       <div>
                         <h4 className="text-lg font-bold text-primary font-heading">{ach.studentName}</h4>
-                        <div className="text-xs text-slate-400 font-medium">S/O: {ach.fatherName}</div>
                         <p className="text-slate-600 text-xs mt-3 leading-relaxed">
                           {ach.description}
                         </p>
@@ -908,15 +907,15 @@ const LandingPage = () => {
               <ul className="space-y-3 text-xs text-slate-300">
                 <li className="flex items-start gap-2.5">
                   <MapPin className="w-4 h-4 shrink-0 text-secondary" />
-                  <span>45-A, Rajeev Gandhi Nagar, near Talwandi Circle, Kota (Raj.) - 324005</span>
+                  <span>HOUSE NO. 31, Mansarovar colony ii, RAIPURA KOTA 324004</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Phone className="w-4 h-4 shrink-0 text-secondary" />
-                  <span>+91 98765 43210</span>
+                  <span>+91 97030 40756</span>
                 </li>
                 <li className="flex items-center gap-2.5">
                   <Mail className="w-4 h-4 shrink-0 text-secondary" />
-                  <span>info@vidyarthiclasseskota.com</span>
+                  <span>vidyarthiclasseskota@gmail.com</span>
                 </li>
               </ul>
             </div>

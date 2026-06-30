@@ -75,7 +75,7 @@ const NotesDashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20">
             {/* Logo */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-all" onClick={() => navigate('/')}>
               <img src={logo} alt="Vidyarthi Classes" className="w-10 h-10 object-contain" />
               <div>
                 <span className="text-lg font-bold font-heading text-primary leading-none block">

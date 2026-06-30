@@ -71,6 +71,8 @@ const AdminDashboard = () => {
   const [studyMaterialDescription, setStudyMaterialDescription] = useState('');
   const [studyMaterialClass, setStudyMaterialClass] = useState('');
   const [studyMaterialFile, setStudyMaterialFile] = useState(null);
+  const [studyMaterialNotesType, setStudyMaterialNotesType] = useState('Free');
+  const [studyMaterialPrice, setStudyMaterialPrice] = useState('');
   const [isUploadingStudyMaterial, setIsUploadingStudyMaterial] = useState(false);
   const [selectedClassView, setSelectedClassView] = useState(null);
   const [attendanceSubTab, setAttendanceSubTab] = useState('students');
@@ -85,6 +87,23 @@ const AdminDashboard = () => {
   const [broadcasts, setBroadcasts] = useState([]);
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
   const [isAnnouncementMode, setIsAnnouncementMode] = useState(false);
+
+  // --- ONLINE TESTS STATE ---
+  const [onlineTests, setOnlineTests] = useState([]);
+  const [isOnlineTestModalOpen, setIsOnlineTestModalOpen] = useState(false);
+  const [onlineTestForm, setOnlineTestForm] = useState({
+    title: '',
+    subject: '',
+    classes: [],
+    timeLimit: 15,
+    questions: [
+      { questionText: '', options: ['', '', '', ''], correctOption: 0, marks: 1 }
+    ],
+    status: 'draft'
+  });
+  const [isTestAttemptsModalOpen, setIsTestAttemptsModalOpen] = useState(false);
+  const [testAttempts, setTestAttempts] = useState([]);
+  const [selectedTestForAttempts, setSelectedTestForAttempts] = useState(null);
 
   // --- DEMO CLASSES STATE ---
   const [demoClasses, setDemoClasses] = useState([]);
@@ -423,7 +442,8 @@ const AdminDashboard = () => {
   const [editingStudent, setEditingStudent] = useState(null);
   const [editingTeacher, setEditingTeacher] = useState(null);
   const [editingFeeClass, setEditingFeeClass] = useState(null);
-  const [editingFeeAmount, setEditingFeeAmount] = useState('');
+  const [editingFeeEnglish, setEditingFeeEnglish] = useState('');
+  const [editingFeeHindi, setEditingFeeHindi] = useState('');
 
   // Delete Confirmation Modals state
   const [deleteModal, setDeleteModal] = useState({
@@ -447,6 +467,7 @@ const AdminDashboard = () => {
     name: '',
     fatherName: '',
     class: 'Class 10',
+    medium: 'English',
     phone: '',
     goodiesStatus: 'Pending',
     discount: 0,
@@ -484,7 +505,6 @@ const AdminDashboard = () => {
   // --- ACHIEVEMENT FORM STATE ---
   const [achievementForm, setAchievementForm] = useState({
     studentName: '',
-    fatherName: '',
     class: 'Class 10',
     description: '',
     photo: null
@@ -495,6 +515,8 @@ const AdminDashboard = () => {
 
   // --- ENQUIRY LIST STATE ---
   const [enquiryList, setEnquiryList] = useState([]);
+  const [enquiryNotes, setEnquiryNotes] = useState({}); // { [enquiry._id]: string }
+  const [savingNoteId, setSavingNoteId] = useState(null);
 
 
 
@@ -516,6 +538,7 @@ const AdminDashboard = () => {
       fetchFeeRecords();
     } else if (activeTab === 'expenses') fetchExpenses();
     else if (activeTab === 'test-result') fetchTestResults();
+    else if (activeTab === 'online-tests') fetchOnlineTests();
     else if (activeTab === 'achievement') fetchAchievements();
     else if (activeTab === 'gallery') fetchGallery();
     else if (activeTab === 'broadcast' || activeTab === 'announcement') {
@@ -1143,29 +1166,52 @@ const AdminDashboard = () => {
   };
 
   // --- Auto-fill fee logic for Student Registration ---
-  const handleStudentClassChange = async (className) => {
+  const handleStudentClassChange = async (className, mediumOverride) => {
     try {
-      // Set the selected class in form state
       setStudentForm((prev) => ({ ...prev, class: className }));
-      
-      // Fetch fee from /api/fees/structure/:class
       const structure = await apiFetch(`/api/fees/structure/${className}`);
-      if (structure && structure.fee) {
-        setStudentForm((prev) => ({ ...prev, totalFees: structure.fee }));
+      if (structure) {
+        // Determine which fee to use based on medium
+        const currentMedium = mediumOverride ?? studentForm.medium ?? 'English';
+        const fee = currentMedium === 'Hindi'
+          ? (structure.hindiMediumFee || 0)
+          : (structure.englishMediumFee || structure.fee || 0);
+        setStudentForm((prev) => ({ ...prev, totalFees: fee }));
       }
     } catch (err) {
       console.warn('Could not auto-fill class fee structure:', err.message);
-      // Fallback
       setStudentForm((prev) => ({ ...prev, totalFees: 0 }));
     }
   };
 
+  // Auto-fill fee when medium changes (in student form)
+  const handleStudentMediumChange = async (medium) => {
+    setStudentForm((prev) => ({ ...prev, medium }));
+    try {
+      const structure = await apiFetch(`/api/fees/structure/${studentForm.class}`);
+      if (structure) {
+        const fee = medium === 'Hindi'
+          ? (structure.hindiMediumFee || 0)
+          : (structure.englishMediumFee || structure.fee || 0);
+        setStudentForm((prev) => ({ ...prev, totalFees: fee }));
+      }
+    } catch (err) {
+      console.warn('Could not auto-fill medium fee:', err.message);
+    }
+  };
+
   // Triggered when editing a student and changing class
-  const handleEditStudentClassChange = async (className, currentFormSetter) => {
+  const handleEditStudentClassChange = async (className, currentFormSetter, mediumOverride) => {
     try {
       const structure = await apiFetch(`/api/fees/structure/${className}`);
-      if (structure && structure.fee) {
-        currentFormSetter((prev) => ({ ...prev, class: className, totalFees: structure.fee }));
+      if (structure) {
+        currentFormSetter((prev) => {
+          const medium = mediumOverride ?? prev.medium ?? 'English';
+          const fee = medium === 'Hindi'
+            ? (structure.hindiMediumFee || 0)
+            : (structure.englishMediumFee || structure.fee || 0);
+          return { ...prev, class: className, totalFees: fee };
+        });
       }
     } catch (err) {
       currentFormSetter((prev) => ({ ...prev, class: className }));
@@ -1302,12 +1348,15 @@ const AdminDashboard = () => {
   // Edit class base fee
   const handleSaveClassFee = async (className) => {
     try {
-      if (!editingFeeAmount) return;
+      if (!editingFeeEnglish && !editingFeeHindi) return;
       await apiFetch(`/api/fees/structure/${className}`, {
         method: 'PUT',
-        body: JSON.stringify({ fee: parseFloat(editingFeeAmount) })
+        body: JSON.stringify({
+          englishMediumFee: parseFloat(editingFeeEnglish) || 0,
+          hindiMediumFee: parseFloat(editingFeeHindi) || 0
+        })
       });
-      showToast(`Base fee for ${className} updated successfully`, 'success');
+      showToast(`Fee for ${className} updated successfully`, 'success');
       setEditingFeeClass(null);
       fetchFeeStructures();
     } catch (err) {
@@ -1349,7 +1398,6 @@ const AdminDashboard = () => {
       setLoading(true);
       const formData = new FormData();
       formData.append('studentName', achievementForm.studentName);
-      formData.append('fatherName', achievementForm.fatherName);
       formData.append('class', achievementForm.class);
       formData.append('description', achievementForm.description);
       formData.append('photo', achievementForm.photo);
@@ -1520,6 +1568,7 @@ const AdminDashboard = () => {
       name: '',
       fatherName: '',
       class: 'Class 10',
+      medium: 'English',
       phone: '',
       goodiesStatus: 'Pending',
       discount: 0,
@@ -1560,12 +1609,115 @@ const AdminDashboard = () => {
   const resetAchievementForm = () => {
     setAchievementForm({
       studentName: '',
-      fatherName: '',
       class: 'Class 10',
       description: '',
       photo: null
     });
   };
+
+  // --- ONLINE TESTS HANDLERS & FETCHERS ---
+  const fetchOnlineTests = async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch('/api/online-tests');
+      setOnlineTests(data);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveOnlineTest = async (e) => {
+    e.preventDefault();
+    if (!onlineTestForm.title || !onlineTestForm.subject || !onlineTestForm.classes.length) {
+      showToast('Please fill all header fields and select at least one class', 'error');
+      return;
+    }
+    // Validation on questions
+    for (let i = 0; i < onlineTestForm.questions.length; i++) {
+      const q = onlineTestForm.questions[i];
+      if (!q.questionText || q.options.some(o => !o)) {
+        showToast(`Please fill all fields for Question ${i + 1}`, 'error');
+        return;
+      }
+    }
+
+    try {
+      setLoading(true);
+      const isEdit = !!onlineTestForm._id;
+      const url = isEdit ? `/api/online-tests/${onlineTestForm._id}` : '/api/online-tests';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      await apiFetch(url, {
+        method,
+        body: JSON.stringify(onlineTestForm)
+      });
+
+      showToast(`Test ${isEdit ? 'updated' : 'created'} successfully`, 'success');
+      setIsOnlineTestModalOpen(false);
+      resetOnlineTestForm();
+      fetchOnlineTests();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteOnlineTest = (test) => {
+    triggerDeleteConfirm(
+      'Delete Online Test',
+      `Are you sure you want to delete test "${test.title}"? All student attempts will also be deleted.`,
+      async () => {
+        try {
+          await apiFetch(`/api/online-tests/${test._id}`, { method: 'DELETE' });
+          showToast('Online test deleted successfully', 'success');
+          fetchOnlineTests();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+    );
+  };
+
+  const handleToggleOnlineTest = async (testId) => {
+    try {
+      const res = await apiFetch(`/api/online-tests/${testId}/toggle`, { method: 'PATCH' });
+      showToast(res.message, 'success');
+      fetchOnlineTests();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
+  const fetchTestAttempts = async (test) => {
+    try {
+      setLoading(true);
+      setSelectedTestForAttempts(test);
+      const data = await apiFetch(`/api/online-tests/${test._id}/attempts`);
+      setTestAttempts(data);
+      setIsTestAttemptsModalOpen(true);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetOnlineTestForm = () => {
+    setOnlineTestForm({
+      title: '',
+      subject: '',
+      classes: [],
+      timeLimit: 15,
+      questions: [
+        { questionText: '', options: ['', '', '', ''], correctOption: 0, marks: 1 }
+      ],
+      status: 'draft'
+    });
+  };
+
 
   const fetchEnquiries = async () => {
     try {
@@ -1595,6 +1747,26 @@ const AdminDashboard = () => {
     );
   };
 
+  const handleSaveNote = async (enquiryId) => {
+    const note = enquiryNotes[enquiryId] ?? enquiryList.find(e => e._id === enquiryId)?.adminNote ?? '';
+    try {
+      setSavingNoteId(enquiryId);
+      await apiFetch(`/api/enquiries/${enquiryId}/note`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminNote: note })
+      });
+      setEnquiryList(prev =>
+        prev.map(e => e._id === enquiryId ? { ...e, adminNote: note } : e)
+      );
+      showToast('Note saved successfully', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setSavingNoteId(null);
+    }
+  };
+
 
 
   // --- Edit Modals Openers ---
@@ -1604,6 +1776,7 @@ const AdminDashboard = () => {
       name: student.name,
       fatherName: student.fatherName,
       class: student.class,
+      medium: student.medium || 'English',
       phone: student.phone,
       goodiesStatus: student.goodiesStatus,
       discount: student.discount,
@@ -1651,6 +1824,7 @@ const AdminDashboard = () => {
     { id: 'fees', label: 'Fee Management', icon: Coins },
     { id: 'expenses', label: 'Expenses', icon: TrendingDown },
     { id: 'test-result', label: 'Test Result', icon: ClipboardList },
+    { id: 'online-tests', label: 'Online Tests', icon: FileText },
     { id: 'achievement', label: 'Achievement', icon: Award },
     { id: 'gallery', label: 'Gallery', icon: ImageIcon },
     { id: 'broadcast', label: 'Broadcast', icon: Radio },
@@ -1674,7 +1848,7 @@ const AdminDashboard = () => {
             <Menu className="w-6 h-6" />
           </button>
           
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 cursor-pointer hover:opacity-80 transition-all" onClick={() => navigate('/')}>
             <img src={logo} alt="Vidyarthi Classes Logo" className="w-10 h-10 object-contain" />
             <h1 className="text-lg sm:text-xl font-bold text-primary font-heading tracking-tight">
               Vidyarthi Classes Kota
@@ -2284,7 +2458,22 @@ const AdminDashboard = () => {
               {/* Heading */}
               <div>
                 <h2 className="text-2xl font-extrabold text-primary font-heading">Fee Management</h2>
-                <p className="text-xs text-slate-400">Configure base class fees structure and inspect student outstanding bills.</p>
+                <p className="text-xs text-slate-400">Configure Hindi & English medium fees per class and inspect student outstanding bills.</p>
+              </div>
+
+              {/* Medium Toggle Info Strip */}
+              <div className="flex items-center gap-3 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-100 rounded-2xl px-5 py-3.5">
+                <div className="flex items-center gap-2 bg-white border border-indigo-200 rounded-xl px-1 py-1 shadow-sm">
+                  <span className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-extrabold tracking-wide shadow">
+                    Hindi Medium
+                  </span>
+                  <span className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-extrabold tracking-wide shadow">
+                    English Medium
+                  </span>
+                </div>
+                <div className="text-xs text-indigo-700 font-semibold">
+                  Dono mediums ki fees alag-alag set karo. Student register/edit karte waqt medium select karo — fee automatically fill ho jayegi.
+                </div>
               </div>
 
               {/* SECTION A - Class Fee Structure */}
@@ -2300,7 +2489,18 @@ const AdminDashboard = () => {
                       <thead>
                         <tr className="bg-slate-50/70 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
                           <th className="px-6 py-4">Class</th>
-                          <th className="px-6 py-4">Base Configured Fee</th>
+                          <th className="px-6 py-4">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                              English Medium Fee
+                            </span>
+                          </th>
+                          <th className="px-6 py-4">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block"></span>
+                              Hindi Medium Fee
+                            </span>
+                          </th>
                           <th className="px-6 py-4">Registered Students</th>
                           <th className="px-6 py-4 text-emerald-600">Fully Paid Students</th>
                           <th className="px-6 py-4 text-danger font-semibold">Pending Students</th>
@@ -2311,22 +2511,46 @@ const AdminDashboard = () => {
                         {feeStructures.map((structure) => (
                           <tr key={structure._id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-6 py-4 font-bold text-slate-800">{structure.class}</td>
+
+                            {/* English Medium Fee */}
                             <td className="px-6 py-4">
                               {editingFeeClass === structure.class ? (
-                                <div className="flex items-center gap-2 max-w-[150px]">
+                                <div className="flex items-center gap-1.5 max-w-[140px]">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
                                   <span className="text-slate-400">₹</span>
                                   <input
                                     type="number"
-                                    value={editingFeeAmount}
-                                    onChange={(e) => setEditingFeeAmount(e.target.value)}
-                                    className="w-full border border-slate-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-primary"
+                                    value={editingFeeEnglish}
+                                    onChange={(e) => setEditingFeeEnglish(e.target.value)}
+                                    className="w-full border border-emerald-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-emerald-400"
+                                    placeholder="English fee"
                                     autoFocus
                                   />
                                 </div>
                               ) : (
-                                <span className="font-stats text-slate-800 font-bold">₹{structure.fee.toLocaleString()}</span>
+                                <span className="font-stats text-emerald-700 font-bold">₹{(structure.englishMediumFee || 0).toLocaleString()}</span>
                               )}
                             </td>
+
+                            {/* Hindi Medium Fee */}
+                            <td className="px-6 py-4">
+                              {editingFeeClass === structure.class ? (
+                                <div className="flex items-center gap-1.5 max-w-[140px]">
+                                  <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
+                                  <span className="text-slate-400">₹</span>
+                                  <input
+                                    type="number"
+                                    value={editingFeeHindi}
+                                    onChange={(e) => setEditingFeeHindi(e.target.value)}
+                                    className="w-full border border-indigo-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-indigo-400"
+                                    placeholder="Hindi fee"
+                                  />
+                                </div>
+                              ) : (
+                                <span className="font-stats text-indigo-700 font-bold">₹{(structure.hindiMediumFee || 0).toLocaleString()}</span>
+                              )}
+                            </td>
+
                             <td className="px-6 py-4 font-stats">{structure.students}</td>
                             <td className="px-6 py-4 text-emerald-600 font-bold font-stats">{structure.paid}</td>
                             <td className="px-6 py-4 text-danger font-bold font-stats">{structure.pending}</td>
@@ -2350,11 +2574,12 @@ const AdminDashboard = () => {
                                 <button
                                   onClick={() => {
                                     setEditingFeeClass(structure.class);
-                                    setEditingFeeAmount(structure.fee.toString());
+                                    setEditingFeeEnglish((structure.englishMediumFee || 0).toString());
+                                    setEditingFeeHindi((structure.hindiMediumFee || 0).toString());
                                   }}
                                   className="px-3.5 py-1.5 border border-slate-200 hover:border-primary/30 rounded-lg text-slate-600 hover:text-primary transition-all text-[11px] font-semibold cursor-pointer"
                                 >
-                                  Edit Fee
+                                  Edit Fees
                                 </button>
                               )}
                             </td>
@@ -2501,6 +2726,133 @@ const AdminDashboard = () => {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ==================== ONLINE TESTS PAGE ==================== */}
+          {activeTab === 'online-tests' && (
+            <div className="space-y-8 text-left animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-primary font-heading">Online Test Builder</h2>
+                  <p className="text-xs text-slate-400">Create, edit, toggle, and view student attempts for online MCQ tests.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    resetOnlineTestForm();
+                    setIsOnlineTestModalOpen(true);
+                  }}
+                  className="px-5 py-3 text-sm font-bold text-white bg-primary hover:bg-primary-light shadow-md hover:shadow-lg rounded-xl flex items-center gap-2 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-5 h-5" /> Create Online Test
+                </button>
+              </div>
+
+              {loading ? (
+                <div className="flex justify-center items-center py-20">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+              ) : onlineTests.length === 0 ? (
+                <div className="text-slate-400 py-24 text-center text-sm font-semibold border border-dashed border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-center gap-3">
+                  <FileText className="w-12 h-12 text-slate-300" />
+                  <p>No online tests created yet. Click "Create Online Test" to start.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {onlineTests.map((test) => (
+                    <div
+                      key={test._id}
+                      className="bg-white border border-slate-100 rounded-2xl p-6 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between"
+                    >
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-start">
+                          <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider">
+                            {test.subject}
+                          </span>
+                          <button
+                            onClick={() => handleToggleOnlineTest(test._id)}
+                            className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shadow-sm transition-all duration-200 cursor-pointer ${
+                              test.status === 'live'
+                                ? 'bg-emerald-500 text-white hover:bg-emerald-600'
+                                : 'bg-amber-500 text-white hover:bg-amber-600'
+                            }`}
+                          >
+                            {test.status === 'live' ? '🟢 Live' : '🟡 Draft'}
+                          </button>
+                        </div>
+
+                        <div>
+                          <h4 className="text-base font-extrabold text-primary font-heading leading-snug line-clamp-2">
+                            {test.title}
+                          </h4>
+                        </div>
+
+                        <div className="pt-3 border-t border-slate-50 space-y-2 text-xs text-slate-600">
+                          <div className="flex justify-between">
+                            <span className="text-slate-450 font-semibold">Classes:</span>
+                            <span className="font-bold text-slate-800 text-right">
+                              {test.classes.join(', ')}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-450 font-semibold">Questions:</span>
+                            <span className="font-bold text-slate-800 font-stats">{test.questions?.length || 0}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-450 font-semibold">Time Limit:</span>
+                            <span className="font-bold text-slate-800 font-stats">{test.timeLimit} Mins</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-450 font-semibold">Total Marks:</span>
+                            <span className="font-bold text-emerald-600 font-stats">{test.totalMarks} Marks</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-slate-50 pt-4 mt-5 flex items-center justify-between">
+                        <button
+                          onClick={() => fetchTestAttempts(test)}
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-extrabold transition-all duration-200 cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Users className="w-3.5 h-3.5" /> Attempts ({test.attemptCount || 0})
+                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setOnlineTestForm({
+                                _id: test._id,
+                                title: test.title,
+                                subject: test.subject,
+                                classes: test.classes,
+                                timeLimit: test.timeLimit,
+                                questions: test.questions.map(q => ({
+                                  questionText: q.questionText,
+                                  options: [...q.options],
+                                  correctOption: q.correctOption,
+                                  marks: q.marks || 1
+                                })),
+                                status: test.status
+                              });
+                              setIsOnlineTestModalOpen(true);
+                            }}
+                            className="p-2 bg-slate-50 text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                            title="Edit test"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteOnlineTest(test)}
+                            className="p-2 bg-rose-50 text-danger hover:bg-rose-100 rounded-lg transition-all"
+                            title="Delete test"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -2708,7 +3060,6 @@ const AdminDashboard = () => {
                         <div className="p-6 flex-1 flex flex-col justify-between space-y-4">
                           <div>
                             <h4 className="text-sm font-extrabold text-primary font-heading">{ach.studentName}</h4>
-                            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider mt-0.5">S/O: {ach.fatherName}</span>
                             <p className="text-slate-500 text-[11px] mt-2.5 leading-relaxed font-medium">
                               {ach.description}
                             </p>
@@ -3460,6 +3811,38 @@ const AdminDashboard = () => {
                             </a>
                           </div>
                         </div>
+
+                        {/* Admin-only Note Section */}
+                        <div className="mt-2 pt-4 border-t border-dashed border-indigo-100 space-y-2">
+                          <div className="flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                            <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-500">Admin Note</span>
+                            <span className="ml-auto text-[9px] bg-indigo-50 text-indigo-400 px-2 py-0.5 rounded-full font-bold">Only you can see this</span>
+                          </div>
+                          <textarea
+                            rows={3}
+                            placeholder="Write a summary of your conversation with this student / parent..."
+                            className="w-full text-xs text-slate-600 bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 placeholder-slate-300 leading-relaxed transition-all duration-200"
+                            value={enquiryNotes[enquiry._id] ?? enquiry.adminNote ?? ''}
+                            onChange={e =>
+                              setEnquiryNotes(prev => ({ ...prev, [enquiry._id]: e.target.value }))
+                            }
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => handleSaveNote(enquiry._id)}
+                              disabled={savingNoteId === enquiry._id}
+                              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all duration-200 cursor-pointer"
+                            >
+                              {savingNoteId === enquiry._id ? (
+                                <svg className="w-3 h-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                              )}
+                              {savingNoteId === enquiry._id ? 'Saving...' : 'Save Note'}
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="border-t border-slate-50 pt-4 mt-5 flex justify-end">
@@ -4041,6 +4424,7 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
+              {/* Class + Medium row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500 uppercase tracking-wider block">Class *</label>
@@ -4048,9 +4432,9 @@ const AdminDashboard = () => {
                     value={studentForm.class}
                     onChange={(e) => {
                       if (editingStudent) {
-                        handleEditStudentClassChange(e.target.value, setStudentForm);
+                        handleEditStudentClassChange(e.target.value, setStudentForm, studentForm.medium);
                       } else {
-                        handleStudentClassChange(e.target.value);
+                        handleStudentClassChange(e.target.value, studentForm.medium);
                       }
                     }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:bg-white"
@@ -4061,6 +4445,61 @@ const AdminDashboard = () => {
                   </select>
                 </div>
 
+                {/* Medium Selector */}
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Medium *</label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-200 h-[38px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (editingStudent) {
+                          setStudentForm(prev => ({ ...prev, medium: 'English' }));
+                          // refetch fee with English
+                          apiFetch(`/api/fees/structure/${studentForm.class}`)
+                            .then(s => s && setStudentForm(prev => ({ ...prev, totalFees: s.englishMediumFee || s.fee || 0 })))
+                            .catch(() => {});
+                        } else {
+                          handleStudentMediumChange('English');
+                        }
+                      }}
+                      className={`flex-1 text-xs font-extrabold tracking-wide transition-all duration-200 ${
+                        studentForm.medium === 'English'
+                          ? 'bg-emerald-600 text-white shadow-inner'
+                          : 'bg-slate-50 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700'
+                      }`}
+                    >
+                      🇬🇧 English
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (editingStudent) {
+                          setStudentForm(prev => ({ ...prev, medium: 'Hindi' }));
+                          apiFetch(`/api/fees/structure/${studentForm.class}`)
+                            .then(s => s && setStudentForm(prev => ({ ...prev, totalFees: s.hindiMediumFee || 0 })))
+                            .catch(() => {});
+                        } else {
+                          handleStudentMediumChange('Hindi');
+                        }
+                      }}
+                      className={`flex-1 text-xs font-extrabold tracking-wide border-l border-slate-200 transition-all duration-200 ${
+                        studentForm.medium === 'Hindi'
+                          ? 'bg-indigo-600 text-white shadow-inner'
+                          : 'bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
+                      }`}
+                    >
+                      🇮🇳 Hindi
+                    </button>
+                  </div>
+                  {studentForm.medium && studentForm.totalFees > 0 && (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Auto-filled fee: <span className="font-bold text-primary">₹{studentForm.totalFees.toLocaleString()}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-500 uppercase tracking-wider block">Phone Number *</label>
                   <input
@@ -4892,16 +5331,6 @@ const AdminDashboard = () => {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="font-bold text-slate-500 uppercase tracking-wider block">Father's Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={achievementForm.fatherName}
-                  onChange={(e) => setAchievementForm((prev) => ({ ...prev, fatherName: e.target.value }))}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
-                />
-              </div>
 
               <div className="space-y-1">
                 <label className="font-bold text-slate-500 uppercase tracking-wider block">Class *</label>
@@ -4946,6 +5375,317 @@ const AdminDashboard = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================== */}
+      {/* ==================== ONLINE TEST MODAL FORM ================ */}
+      {/* ========================================================== */}
+      {isOnlineTestModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto animate-fadeIn">
+          <div className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">
+                {onlineTestForm._id ? 'Edit Online Test' : 'Create Online Test'}
+              </h3>
+              <button
+                onClick={() => { setIsOnlineTestModalOpen(false); resetOnlineTestForm(); }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleSaveOnlineTest} className="p-6 space-y-6 text-left text-xs max-h-[75vh] overflow-y-auto">
+              {/* Test Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Test Title *</label>
+                  <input
+                    type="text"
+                    required
+                    value={onlineTestForm.title}
+                    onChange={(e) => setOnlineTestForm(prev => ({ ...prev, title: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700 font-semibold"
+                    placeholder="e.g. Mid-term Assessment"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Subject *</label>
+                  <input
+                    type="text"
+                    required
+                    value={onlineTestForm.subject}
+                    onChange={(e) => setOnlineTestForm(prev => ({ ...prev, subject: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700 font-semibold"
+                    placeholder="e.g. Physics"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Time Limit (Minutes) *</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    value={onlineTestForm.timeLimit}
+                    onChange={(e) => setOnlineTestForm(prev => ({ ...prev, timeLimit: parseInt(e.target.value) || 15 }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700 font-semibold"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Select Classes (Multiple) *</label>
+                  <div className="p-2 border border-slate-200 bg-slate-50 rounded-lg max-h-24 overflow-y-auto space-y-1">
+                    {classesOptions.map((c) => {
+                      const isChecked = onlineTestForm.classes.includes(c);
+                      return (
+                        <label key={c} className="flex items-center gap-2 cursor-pointer text-[11px] font-semibold text-slate-600 hover:text-primary">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setOnlineTestForm(prev => {
+                                const newClasses = isChecked
+                                  ? prev.classes.filter(cls => cls !== c)
+                                  : [...prev.classes, c];
+                                return { ...prev, classes: newClasses };
+                              });
+                            }}
+                            className="rounded text-primary focus:ring-primary border-slate-350"
+                          />
+                          {c}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Questions Area */}
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-sm font-extrabold text-primary font-heading">Test Questions</h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOnlineTestForm(prev => ({
+                        ...prev,
+                        questions: [...prev.questions, { questionText: '', options: ['', '', '', ''], correctOption: 0, marks: 1 }]
+                      }));
+                    }}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" /> Add Question
+                  </button>
+                </div>
+
+                <div className="space-y-6">
+                  {onlineTestForm.questions.map((q, qIndex) => (
+                    <div key={qIndex} className="p-4 border border-slate-150 bg-slate-50/50 rounded-2xl relative space-y-3">
+                      {/* Delete Question */}
+                      {onlineTestForm.questions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOnlineTestForm(prev => ({
+                              ...prev,
+                              questions: prev.questions.filter((_, idx) => idx !== qIndex)
+                            }));
+                          }}
+                          className="absolute top-3 right-3 p-1.5 text-danger hover:bg-rose-50 rounded-lg"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      <div className="font-extrabold text-slate-700">Question {qIndex + 1}</div>
+
+                      <div className="space-y-2">
+                        <label className="font-bold text-slate-500 uppercase tracking-wider block">Question Text *</label>
+                        <input
+                          type="text"
+                          required
+                          value={q.questionText}
+                          onChange={(e) => {
+                            const newQs = [...onlineTestForm.questions];
+                            newQs[qIndex].questionText = e.target.value;
+                            setOnlineTestForm(prev => ({ ...prev, questions: newQs }));
+                          }}
+                          className="w-full px-3 py-2 border border-slate-200 bg-white rounded-lg outline-none text-slate-700 font-medium"
+                          placeholder="Type your question here"
+                        />
+                      </div>
+
+                      {/* Options */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {q.options.map((opt, optIdx) => (
+                          <div key={optIdx} className="space-y-1">
+                            <label className="font-bold text-slate-500 uppercase tracking-wider block">Option {optIdx + 1} *</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={`correct-${qIndex}`}
+                                checked={q.correctOption === optIdx}
+                                onChange={() => {
+                                  const newQs = [...onlineTestForm.questions];
+                                  newQs[qIndex].correctOption = optIdx;
+                                  setOnlineTestForm(prev => ({ ...prev, questions: newQs }));
+                                }}
+                                className="text-primary focus:ring-primary"
+                                title="Mark as correct answer"
+                              />
+                              <input
+                                type="text"
+                                required
+                                value={opt}
+                                onChange={(e) => {
+                                  const newQs = [...onlineTestForm.questions];
+                                  newQs[qIndex].options[optIdx] = e.target.value;
+                                  setOnlineTestForm(prev => ({ ...prev, questions: newQs }));
+                                }}
+                                className="w-full px-3 py-1.5 border border-slate-200 bg-white rounded-lg outline-none text-slate-700 font-medium"
+                                placeholder={`Option ${optIdx + 1}`}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Marks */}
+                      <div className="w-32">
+                        <label className="font-bold text-slate-500 uppercase tracking-wider block">Question Marks *</label>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          value={q.marks}
+                          onChange={(e) => {
+                            const newQs = [...onlineTestForm.questions];
+                            newQs[qIndex].marks = parseInt(e.target.value) || 1;
+                            setOnlineTestForm(prev => ({ ...prev, questions: newQs }));
+                          }}
+                          className="w-full px-3 py-1.5 border border-slate-200 bg-white rounded-lg outline-none text-slate-700 font-bold"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setIsOnlineTestModalOpen(false); resetOnlineTestForm(); }}
+                  className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg border border-slate-200 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 text-white bg-primary hover:bg-primary-light rounded-lg shadow font-semibold cursor-pointer"
+                >
+                  {onlineTestForm._id ? 'Update Test' : 'Create Test'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================== */}
+      {/* ==================== TEST ATTEMPTS LIST MODAL ============== */}
+      {/* ========================================================== */}
+      {isTestAttemptsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto animate-fadeIn">
+          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-primary font-heading">
+                Attempts for "{selectedTestForAttempts?.title}"
+              </h3>
+              <button
+                onClick={() => { setIsTestAttemptsModalOpen(false); setSelectedTestForAttempts(null); }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 max-h-[70vh] overflow-y-auto space-y-4">
+              {testAttempts.length === 0 ? (
+                <div className="text-slate-400 py-12 text-center text-sm font-semibold">
+                  No students have attempted this test yet.
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                  <table className="w-full border-collapse text-left text-xs text-slate-600">
+                    <thead>
+                      <tr className="bg-slate-50 text-[10px] font-extrabold uppercase text-slate-400 tracking-wider border-b border-slate-100">
+                        <th className="px-6 py-3.5">Student ID</th>
+                        <th className="px-6 py-3.5">Student Name</th>
+                        <th className="px-6 py-3.5">Class</th>
+                        <th className="px-6 py-3.5">Score</th>
+                        <th className="px-6 py-3.5">Percentage</th>
+                        <th className="px-6 py-3.5">Submission</th>
+                        <th className="px-6 py-3.5">Attempt Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {testAttempts.map((att) => (
+                        <tr key={att._id} className="hover:bg-slate-50/50">
+                          <td className="px-6 py-4 font-bold text-slate-800">{att.student?.studentId || 'N/A'}</td>
+                          <td className="px-6 py-4 font-bold text-slate-800">{att.student?.name || 'Deleted Student'}</td>
+                          <td className="px-6 py-4">{att.studentClass}</td>
+                          <td className="px-6 py-4 font-stats font-bold text-emerald-600">
+                            {att.score} / {att.totalMarks}
+                          </td>
+                          <td className="px-6 py-4 font-stats">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              att.percentage >= 60
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : att.percentage >= 33
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-rose-50 text-rose-700'
+                            }`}>
+                              {att.percentage}%
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            {att.autoSubmitted ? (
+                              <span className="text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md font-bold text-[10px] uppercase">
+                                Auto ({att.autoSubmitReason || 'Exit'})
+                              </span>
+                            ) : (
+                              <span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md font-bold text-[10px] uppercase">
+                                Manual
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-slate-400">
+                            {new Date(att.createdAt).toLocaleString('en-IN', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
