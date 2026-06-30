@@ -828,6 +828,8 @@ const AdminDashboard = () => {
       formData.append('title', studyMaterialTitle);
       formData.append('description', studyMaterialDescription);
       formData.append('targetClass', studyMaterialClass);
+      formData.append('notesType', studyMaterialNotesType);
+      formData.append('price', studyMaterialNotesType === 'Paid' ? (studyMaterialPrice || 0) : 0);
       formData.append('file', studyMaterialFile);
 
       const response = await fetch(`${API_BASE_URL}/api/study-materials`, {
@@ -850,6 +852,8 @@ const AdminDashboard = () => {
       setStudyMaterialTitle('');
       setStudyMaterialDescription('');
       setStudyMaterialClass('');
+      setStudyMaterialNotesType('Free');
+      setStudyMaterialPrice('');
       setStudyMaterialFile(null);
       
       fetchStudyMaterials();
@@ -3964,7 +3968,18 @@ const AdminDashboard = () => {
                                     year: 'numeric'
                                   })}
                                 </span>
-                                <h3 className="text-sm font-bold text-slate-800 leading-tight">{mat.title}</h3>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-sm font-bold text-slate-800 leading-tight">{mat.title}</h3>
+                                  {mat.notesType === 'Paid' ? (
+                                    <span className="text-[9px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-bold border border-indigo-100">
+                                      ₹{mat.price}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-bold border border-emerald-100">
+                                      Free
+                                    </span>
+                                  )}
+                                </div>
                                 {mat.description && (
                                   <p className="text-xs text-slate-550 leading-normal line-clamp-3">{mat.description}</p>
                                 )}
@@ -6266,6 +6281,8 @@ const AdminDashboard = () => {
                   setStudyMaterialTitle('');
                   setStudyMaterialDescription('');
                   setStudyMaterialClass('');
+                  setStudyMaterialNotesType('Free');
+                  setStudyMaterialPrice('');
                   setStudyMaterialFile(null);
                 }}
                 className="p-1.5 hover:bg-slate-200 text-slate-500 rounded-lg transition-colors cursor-pointer"
@@ -6315,6 +6332,37 @@ const AdminDashboard = () => {
                 </select>
               </div>
 
+              {/* Access Type & Price */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Access Type</label>
+                  <select
+                    required
+                    value={studyMaterialNotesType}
+                    onChange={(e) => setStudyMaterialNotesType(e.target.value)}
+                    className="w-full py-2.5 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary transition-all font-semibold"
+                  >
+                    <option value="Free">Free for Everyone</option>
+                    <option value="Paid">Paid (Coaching Free)</option>
+                  </select>
+                </div>
+
+                {studyMaterialNotesType === 'Paid' && (
+                  <div className="space-y-1 animate-fadeIn">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Price (₹)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      placeholder="e.g. 199"
+                      value={studyMaterialPrice}
+                      onChange={(e) => setStudyMaterialPrice(e.target.value)}
+                      className="w-full py-2.5 px-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary transition-all font-semibold"
+                    />
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-1">
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">PDF or Image File</label>
                 <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center bg-slate-50 hover:bg-slate-100/50 transition-colors relative">
@@ -6330,7 +6378,7 @@ const AdminDashboard = () => {
                     <p className="text-xs font-bold text-slate-600">
                       {studyMaterialFile ? studyMaterialFile.name : 'Select or drop PDF / Image here'}
                     </p>
-                    <p className="text-[10px] text-slate-400">Accepted formats: .pdf, .jpg, .png (Max: 10MB)</p>
+                    <p className="text-[10px] text-slate-400">Accepted formats: .pdf, .jpg, .png (Max: 100MB)</p>
                   </div>
                 </div>
               </div>

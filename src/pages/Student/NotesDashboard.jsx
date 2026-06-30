@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, API_BASE_URL } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import SecureViewerModal from '../../components/SecureViewerModal';
 import {
   GraduationCap,
   User,
@@ -24,6 +25,7 @@ const NotesDashboard = () => {
   const [profile, setProfile] = useState(null);
   const [studyMaterials, setStudyMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedNote, setSelectedNote] = useState(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -219,14 +221,12 @@ const NotesDashboard = () => {
 
                     <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-50 flex items-center justify-between gap-3">
                       {item.isUnlocked ? (
-                        <a
-                          href={item.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          onClick={() => setSelectedNote(item)}
                           className="w-full inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
                         >
-                          <Download className="w-4 h-4" /> Download PDF
-                        </a>
+                          <BookOpen className="w-4 h-4" /> View Material
+                        </button>
                       ) : (
                         <button
                           onClick={() => handleLockedClick(item)}
@@ -243,6 +243,21 @@ const NotesDashboard = () => {
           </div>
         </div>
       </main>
+
+      {/* Secure Viewer Modal */}
+      {selectedNote && (
+        <SecureViewerModal
+          isOpen={!!selectedNote}
+          onClose={() => setSelectedNote(null)}
+          fileUrl={selectedNote.fileUrl.startsWith('http') ? selectedNote.fileUrl : `${API_BASE_URL}${selectedNote.fileUrl}`}
+          title={selectedNote.title}
+          student={{
+            name: profile?.name,
+            studentId: profile?.studentId,
+            phone: profile?.phone
+          }}
+        />
+      )}
 
       {/* FOOTER */}
       <footer className="bg-primary text-white py-6 border-t border-slate-800 text-center text-xs mt-12">

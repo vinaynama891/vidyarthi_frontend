@@ -25,6 +25,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
+import SecureViewerModal from '../../components/SecureViewerModal';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -38,6 +39,7 @@ const StudentDashboard = () => {
   const [activeSection, setActiveSection] = useState('fees'); // 'material', 'fees', 'notices', 'results', 'attendance', 'online-tests'
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [studyMaterials, setStudyMaterials] = useState([]);
+  const [selectedNote, setSelectedNote] = useState(null);
 
   // --- ONLINE TEST STATES ---
   const [liveTests, setLiveTests] = useState([]);
@@ -841,14 +843,12 @@ const StudentDashboard = () => {
                             })}
                           </span>
                         </div>
-                        <a
-                          href={materialFileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          onClick={() => setSelectedNote(mat)}
                           className="mt-4 flex items-center justify-center gap-1.5 w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-bold rounded-xl shadow-sm transition-colors cursor-pointer text-center font-sans"
                         >
-                          <Download className="w-3.5 h-3.5" /> View/Download Material
-                        </a>
+                          <BookOpen className="w-3.5 h-3.5" /> View Material
+                        </button>
                       </div>
                     );
                   })}
@@ -1320,6 +1320,21 @@ const StudentDashboard = () => {
         </div>
 
       </main>
+
+      {/* Secure Viewer Modal */}
+      {selectedNote && (
+        <SecureViewerModal
+          isOpen={!!selectedNote}
+          onClose={() => setSelectedNote(null)}
+          fileUrl={selectedNote.fileUrl.startsWith('http') ? selectedNote.fileUrl : `${API_BASE_URL}${selectedNote.fileUrl}`}
+          title={selectedNote.title}
+          student={{
+            name: profile?.name,
+            studentId: profile?.studentId,
+            phone: profile?.phone
+          }}
+        />
+      )}
 
       {/* Receipt Modal Preview */}
       {isReceiptModalOpen && (() => {
