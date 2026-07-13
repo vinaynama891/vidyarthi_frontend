@@ -12,6 +12,7 @@ import {
   FileText,
   DollarSign,
   TrendingDown,
+  TrendingUp,
   ClipboardList,
   Award,
   Image as ImageIcon,
@@ -58,7 +59,9 @@ const AdminDashboard = () => {
     totalTeachers: 0,
     totalFees: 0,
     paidFees: 0,
-    pendingFees: 0
+    pendingFees: 0,
+    totalExpenses: 0,
+    totalProfit: 0
   });
 
   // Data states
@@ -748,6 +751,7 @@ const AdminDashboard = () => {
       setLoading(true);
       const data = await apiFetch(`/api/expenses?month=${expenseMonth}&year=${expenseYear}`);
       setExpenses(data);
+      fetchStats();
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
@@ -1167,7 +1171,7 @@ const AdminDashboard = () => {
         body: formData
       });
 
-      showToast(res.message || (isAnnouncementMode ? 'Announcement posted successfully!' : 'Broadcast sent successfully via WhatsApp!'), 'success');
+      showToast(res.message || (isAnnouncementMode ? 'Announcement posted successfully!' : 'Broadcast posted successfully in-app!'), 'success');
       setIsBroadcastModalOpen(false);
       resetBroadcastForm();
       fetchBroadcasts();
@@ -1981,8 +1985,8 @@ const AdminDashboard = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-premium flex items-center gap-5 text-left">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-5 text-left">
                   <div className="bg-emerald-500/10 p-4 rounded-xl text-emerald-600"><DollarSign className="w-8 h-8" /></div>
                   <div>
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Paid Fees Collection</span>
@@ -1990,11 +1994,19 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-premium flex items-center gap-5 text-left">
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-5 text-left">
                   <div className="bg-rose-50 p-4 rounded-xl text-danger"><TrendingDown className="w-8 h-8" /></div>
                   <div>
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Pending Fees Owed</span>
                     <span className="text-3xl font-bold font-stats text-danger mt-1 block">₹{stats.pendingFees.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-5 text-left">
+                  <div className="bg-indigo-50 p-4 rounded-xl text-indigo-650"><TrendingUp className="w-8 h-8" /></div>
+                  <div>
+                    <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Total Profit</span>
+                    <span className="text-3xl font-bold font-stats text-indigo-650 mt-1 block">₹{(stats.totalProfit || 0).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -2662,14 +2674,27 @@ const AdminDashboard = () => {
                   </div>
                 </div>
 
-                {/* Monthly Total */}
-                <div className="bg-rose-50/50 border border-rose-100/50 px-6 py-3.5 rounded-2xl shrink-0">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                    Total Expenses in {new Date(parseInt(expenseYear), parseInt(expenseMonth) - 1).toLocaleString('default', { month: 'long' })} {expenseYear}
-                  </span>
-                  <span className="text-2xl font-black font-stats text-danger mt-1 block">
-                    ₹{expenses.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}/-
-                  </span>
+                {/* Total Stats Boxes */}
+                <div className="flex flex-wrap items-center gap-4 shrink-0">
+                  {/* Monthly Total */}
+                  <div className="bg-rose-50/50 border border-rose-100/50 px-5 py-3 rounded-2xl min-w-[160px] text-left">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                      Expenses in {new Date(parseInt(expenseYear), parseInt(expenseMonth) - 1).toLocaleString('default', { month: 'short' })} {expenseYear}
+                    </span>
+                    <span className="text-xl font-black font-stats text-danger mt-1 block">
+                      ₹{expenses.reduce((acc, curr) => acc + curr.amount, 0).toLocaleString()}/-
+                    </span>
+                  </div>
+
+                  {/* All-Time Total */}
+                  <div className="bg-slate-50 border border-slate-200/60 px-5 py-3 rounded-2xl min-w-[160px] text-left">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+                      Total Expenses (All Time)
+                    </span>
+                    <span className="text-xl font-black font-stats text-slate-700 mt-1 block">
+                      ₹{(stats.totalExpenses || 0).toLocaleString()}/-
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -3504,8 +3529,8 @@ const AdminDashboard = () => {
             <div className="space-y-6 text-left">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">WhatsApp Announcements</h2>
-                  <p className="text-xs text-slate-400">Broadcast official messages and alerts directly to student and teacher WhatsApp numbers.</p>
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">In-App Broadcasts</h2>
+                  <p className="text-xs text-slate-400">Broadcast official messages and alerts directly to student and teacher in-app dashboards.</p>
                 </div>
                 <button
                   onClick={() => { setIsAnnouncementMode(false); resetBroadcastForm(); setIsBroadcastModalOpen(true); }}
@@ -3548,7 +3573,7 @@ const AdminDashboard = () => {
                                 </span>
                               </div>
                               <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0">
-                                WhatsApp
+                                Broadcast
                               </span>
                             </div>
 
@@ -5781,7 +5806,7 @@ const AdminDashboard = () => {
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
               <h3 className="text-lg font-bold text-primary font-heading">
-                {isAnnouncementMode ? 'Post Web Announcement' : 'Send WhatsApp Announcement'}
+                {isAnnouncementMode ? 'Post Web Announcement' : 'Send In-App Broadcast'}
               </h3>
               <button
                 onClick={() => { setIsBroadcastModalOpen(false); resetBroadcastForm(); }}
@@ -5815,7 +5840,7 @@ const AdminDashboard = () => {
                   required
                   value={broadcastForm.description}
                   onChange={(e) => setBroadcastForm((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder={isAnnouncementMode ? 'Type announcement contents here...' : 'Type WhatsApp message contents here...'}
+                  placeholder={isAnnouncementMode ? 'Type announcement contents here...' : 'Type broadcast message contents here...'}
                   rows="4"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
                 />

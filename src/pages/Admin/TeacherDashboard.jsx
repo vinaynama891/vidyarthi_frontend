@@ -57,6 +57,42 @@ const TeacherDashboard = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loadingAnnouncements, setLoadingAnnouncements] = useState(false);
 
+  // Notification States & Handlers
+  const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
+  const [readNoticeIds, setReadNoticeIds] = useState([]);
+
+  useEffect(() => {
+    const savedRead = localStorage.getItem('vidyarthi_read_notices');
+    if (savedRead) {
+      try {
+        setReadNoticeIds(JSON.parse(savedRead));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, [announcements]);
+
+  // Filter announcements targeted to this teacher
+  const targetedAnnouncements = announcements.filter(b => 
+    profile && (
+      !b.targets ||
+      (!b.targets.classes?.length && !b.targets.teachers?.length) ||
+      b.targets.teachers?.includes(profile._id) ||
+      b.targets.classes?.some(c => profile.classesAssigned?.includes(c))
+    )
+  );
+
+  const broadcastNotices = targetedAnnouncements.filter(n => !n.isAnnouncement);
+
+  const unreadNoticesCount = broadcastNotices.filter(n => !readNoticeIds.includes(n._id)).length;
+
+  const handleOpenNotifications = () => {
+    setIsNotificationDrawerOpen(true);
+    const allNoticeIds = broadcastNotices.map(n => n._id);
+    localStorage.setItem('vidyarthi_read_notices', JSON.stringify(allNoticeIds));
+    setReadNoticeIds(allNoticeIds);
+  };
+
   const fetchAnnouncements = async () => {
     try {
       setLoadingAnnouncements(true);
@@ -198,6 +234,13 @@ const TeacherDashboard = () => {
         setSubject(data.subject || '');
         if (data.classesAssigned && data.classesAssigned.length > 0) {
           setSelectedClass(data.classesAssigned[0]);
+        }
+        // Also fetch announcements on mount to populate the unread count in the bell icon
+        try {
+          const annData = await apiFetch('/api/broadcasts');
+          setAnnouncements(annData);
+        } catch (annErr) {
+          console.warn('Could not fetch announcements on mount:', annErr.message);
         }
       } catch (err) {
         showToast(err.message || 'Error fetching teacher profile', 'error');
@@ -376,6 +419,21 @@ const TeacherDashboard = () => {
             <span className="text-xs text-slate-400 block font-medium">Faculty Member</span>
             <span className="text-sm font-bold text-slate-700">{profile.name}</span>
           </div>
+
+          {/* Notifications Bell */}
+          <button
+            onClick={handleOpenNotifications}
+            className="relative bg-amber-50 hover:bg-amber-100 text-amber-600 p-2.5 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center mr-1"
+            title="Broadcast Notifications"
+          >
+            <Bell className={`w-5 h-5 ${unreadNoticesCount > 0 ? 'animate-bounce' : ''}`} />
+            {unreadNoticesCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-danger text-white text-[9px] font-black h-5 w-5 rounded-full flex items-center justify-center border-2 border-white animate-pulse">
+                {unreadNoticesCount}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={() => navigate('/')}
             className="bg-slate-50 hover:bg-slate-100 border border-slate-150 hover:border-slate-200 text-slate-700 px-4 py-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
@@ -402,6 +460,25 @@ const TeacherDashboard = () => {
           <h2 className="text-2xl font-black text-primary font-heading">Welcome, {profile.name}!</h2>
           <p className="text-xs text-slate-450">Review assigned classes and submit student marks for test reports.</p>
         </div>
+
+        {/* Pulse Alert Banner for Broadcast Notifications */}
+        {unreadNoticesCount > 0 && (
+          <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-4 rounded-3xl shadow-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 animate-pulse">
+            <div className="flex items-center gap-3 text-left">
+              <div className="p-2 bg-white/20 rounded-xl shrink-0"><Bell className="w-5 h-5 text-white" /></div>
+              <div>
+                <h4 className="text-sm font-extrabold font-heading">You have {unreadNoticesCount} new broadcast announcement{unreadNoticesCount > 1 ? 's' : ''}!</h4>
+                <p className="text-[10px] text-white/90 font-semibold">Important updates from the administration have been posted.</p>
+              </div>
+            </div>
+            <button
+              onClick={handleOpenNotifications}
+              className="bg-white text-orange-600 hover:bg-orange-50 font-bold px-4 py-2 rounded-xl text-xs transition-all duration-200 cursor-pointer shadow-md shadow-orange-700/10 shrink-0"
+            >
+              View Announcements
+            </button>
+          </div>
+        )}
 
         {/* Interactive Info & Navigation Cards Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1072,7 +1149,104 @@ const TeacherDashboard = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
 
+      {/* Broadcast Notification Slide-over Drawer */}
+      {isNotificationDrawerOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity duration-300"
+            onClick={() => setIsNotificationDrawerOpen(false)}
+          />
+          
+          {/* Drawer panel */}
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-slide-in">
+            <style>{`
+              @keyframes slideIn {
+                from { transform: translateX(100%); }
+                to { transform: translateX(0); }
+              }
+              .animate-slide-in {
+                animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+              }
+            `}</style>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-amber-500" />
+                <h3 className="text-base font-extrabold text-primary font-heading">Broadcast Notices</h3>
+              </div>
+              <button
+                onClick={() => setIsNotificationDrawerOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Notification List */}
+            <div className="flex-grow overflow-y-auto p-6 space-y-4">
+              {broadcastNotices.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-medium">
+                  <Bell className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+                  <p className="text-sm">No notices broadcast to you yet.</p>
+                </div>
+              ) : (
+                broadcastNotices.map((n) => {
+                  const isNew = !readNoticeIds.includes(n._id);
+                  const hasAttachment = !!n.imageUrl;
+                  const isNoticePdf = hasAttachment && (n.imageUrl.toLowerCase().includes('.pdf'));
+                  const attachmentUrl = hasAttachment && (n.imageUrl.startsWith('http') ? n.imageUrl : `${API_BASE_URL}${n.imageUrl}`);
+
+                  return (
+                    <div 
+                      key={n._id} 
+                      className={`p-4 border rounded-2xl transition-all duration-200 relative ${
+                        isNew 
+                          ? 'border-amber-250 bg-amber-50/20 shadow-sm ring-1 ring-amber-200/50' 
+                          : 'border-slate-100 bg-white hover:border-slate-200'
+                      }`}
+                    >
+                      {isNew && (
+                        <span className="absolute top-4 right-4 bg-amber-500 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider animate-pulse">
+                          New
+                        </span>
+                      )}
+                      <div className="space-y-2 text-left">
+                        <h4 className="text-sm font-black text-slate-800 leading-snug pr-8">{n.title}</h4>
+                        <span className="text-[9px] text-slate-400 font-bold block">
+                          {new Date(n.sentAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </span>
+                        <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{n.description}</p>
+                        
+                        {hasAttachment && (
+                          <div className="pt-2">
+                            {isNoticePdf ? (
+                              <a
+                                href={attachmentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-rose-100 bg-rose-50/50 hover:bg-rose-50 text-rose-700 font-extrabold rounded-xl text-[9px] transition-colors"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-rose-500" /> View Document (PDF)
+                              </a>
+                            ) : (
+                              <div className="w-full rounded-xl overflow-hidden border border-slate-100 bg-slate-50 max-h-36">
+                                <img src={attachmentUrl} alt="Notice Attachment" className="w-full h-auto object-contain max-h-36" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       )}

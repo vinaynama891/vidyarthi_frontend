@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL, useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { Eye, EyeOff, Lock, X, Loader2, Video, MoreVertical } from 'lucide-react';
+import { Eye, EyeOff, Lock, X, Loader2, Video, MoreVertical, Smartphone } from 'lucide-react';
 import logo from '../../assets/logo.png';
 import heroImage from '../../assets/Hero_Image.png';
 
@@ -874,6 +874,16 @@ const LandingPage = () => {
                 <a href="https://www.facebook.com/share/1XUH8C7hK9/" className="p-2 bg-white/5 hover:bg-secondary hover:text-primary rounded-lg transition-colors"><Facebook className="w-4 h-4" /></a>
                 <a href="https://www.instagram.com/vdyarthiclasseskota?igsh=MW9ueTRwdXVwZDhkMQ==" className="p-2 bg-white/5 hover:bg-secondary hover:text-primary rounded-lg transition-colors"><Instagram className="w-4 h-4" /></a>
                 <a href="https://youtube.com/@vidyarthiclasseskota-m5z?si=m2VbO9T3olhVxkoC" className="p-2 bg-white/5 hover:bg-secondary hover:text-primary rounded-lg transition-colors"><Youtube className="w-4 h-4" /></a>
+              </div>
+              <div className="pt-2">
+                <a 
+                  href="https://drive.google.com/file/d/1EDEVkGo_RxuTe_1idfiBkh7FagxTa1BV/view?usp=sharing"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-black bg-secondary hover:bg-secondary-light text-primary hover:text-primary-dark rounded-xl transition-all duration-200 shadow-md cursor-pointer w-fit animate-pulse"
+                >
+                  <Smartphone className="w-4 h-4" /> Download Our App
+                </a>
               </div>
             </div>
 
