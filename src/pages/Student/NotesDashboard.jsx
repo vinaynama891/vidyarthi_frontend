@@ -13,7 +13,10 @@ import {
   Download,
   LogOut,
   Loader2,
-  ArrowLeft
+  ArrowLeft,
+  Bell,
+  X,
+  FileText
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 
@@ -27,6 +30,10 @@ const NotesDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [selectedNote, setSelectedNote] = useState(null);
 
+  const [notices, setNotices] = useState([]);
+  const [readNoticeIds, setReadNoticeIds] = useState([]);
+  const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
@@ -38,6 +45,14 @@ const NotesDashboard = () => {
         // Fetch study materials securely filtered for student
         const materialsData = await apiFetch('/api/study-materials/student');
         setStudyMaterials(materialsData);
+
+        // Fetch broadcasts
+        try {
+          const noticesData = await apiFetch('/api/broadcasts');
+          setNotices(noticesData);
+        } catch (noticeErr) {
+          console.warn('Could not fetch notices:', noticeErr.message);
+        }
       } catch (err) {
         showToast(err.message || 'Error fetching dashboard data', 'error');
       } finally {
@@ -47,6 +62,27 @@ const NotesDashboard = () => {
 
     fetchDashboardData();
   }, []);
+
+  useEffect(() => {
+    const savedRead = localStorage.getItem('vidyarthi_read_notices');
+    if (savedRead) {
+      try {
+        setReadNoticeIds(JSON.parse(savedRead));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, [notices]);
+
+  const broadcastNotices = notices.filter(n => !n.isAnnouncement);
+  const unreadNoticesCount = broadcastNotices.filter(n => !readNoticeIds.includes(n._id)).length;
+
+  const handleOpenNotifications = () => {
+    setIsNotificationDrawerOpen(true);
+    const allNoticeIds = broadcastNotices.map(n => n._id);
+    localStorage.setItem('vidyarthi_read_notices', JSON.stringify(allNoticeIds));
+    setReadNoticeIds(allNoticeIds);
+  };
 
   const handleLogout = () => {
     logout();
@@ -91,6 +127,20 @@ const NotesDashboard = () => {
 
             {/* Back & Logout Action */}
             <div className="flex items-center gap-3">
+              {/* Notifications Bell */}
+              <button
+                onClick={handleOpenNotifications}
+                className="relative p-2.5 text-slate-500 hover:text-primary hover:bg-slate-50 border border-slate-150 hover:border-slate-200 rounded-xl transition-all duration-200 cursor-pointer"
+                title="Notifications"
+              >
+                <Bell className={`w-5 h-5 ${unreadNoticesCount > 0 ? 'animate-bounce' : ''}`} />
+                {unreadNoticesCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center border-2 border-white ring-1 ring-amber-300">
+                    {unreadNoticesCount}
+                  </span>
+                )}
+              </button>
+
               <button
                 onClick={() => navigate('/')}
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-750 bg-slate-50 hover:bg-slate-100 border border-slate-150 hover:border-slate-200 rounded-xl transition-all duration-200 cursor-pointer"
@@ -257,6 +307,104 @@ const NotesDashboard = () => {
             phone: profile?.phone
           }}
         />
+      )}
+
+      {/* Broadcast Notification Slide-over Drawer */}
+      {isNotificationDrawerOpen && (
+        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm transition-opacity duration-300"
+            onClick={() => setIsNotificationDrawerOpen(false)}
+          />
+          
+          {/* Drawer panel */}
+          <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col z-10 animate-slide-in">
+            <style>{`
+              @keyframes slideIn {
+                from { transform: translateX(100%); }
+                to { transform: translateX(0); }
+              }
+              .animate-slide-in {
+                animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+              }
+            `}</style>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-amber-500" />
+                <h3 className="text-base font-extrabold text-primary font-heading">Broadcast Notices</h3>
+              </div>
+              <button
+                onClick={() => setIsNotificationDrawerOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Notification List */}
+            <div className="flex-grow overflow-y-auto p-6 space-y-4">
+              {broadcastNotices.length === 0 ? (
+                <div className="text-center py-20 text-slate-400 font-medium">
+                  <Bell className="w-12 h-12 text-slate-200 mx-auto mb-3" />
+                  <p className="text-sm">No notices broadcast to your class yet.</p>
+                </div>
+              ) : (
+                broadcastNotices.map((n) => {
+                  const isNew = !readNoticeIds.includes(n._id);
+                  const hasAttachment = !!n.imageUrl;
+                  const isNoticePdf = hasAttachment && (n.imageUrl.toLowerCase().includes('.pdf'));
+                  const attachmentUrl = hasAttachment && (n.imageUrl.startsWith('http') ? n.imageUrl : `${API_BASE_URL}${n.imageUrl}`);
+
+                  return (
+                    <div 
+                      key={n._id} 
+                      className={`p-4 border rounded-2xl transition-all duration-200 relative ${
+                        isNew 
+                          ? 'border-amber-250 bg-amber-50/20 shadow-sm ring-1 ring-amber-200/50' 
+                          : 'border-slate-100 bg-white hover:border-slate-200'
+                      }`}
+                    >
+                      {isNew && (
+                        <span className="absolute top-4 right-4 bg-amber-500 text-white text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider animate-pulse">
+                          New
+                        </span>
+                      )}
+                      <div className="space-y-2 text-left">
+                        <h4 className="text-sm font-black text-slate-800 leading-snug pr-8">{n.title}</h4>
+                        <span className="text-[9px] text-slate-400 font-bold block">
+                          {new Date(n.sentAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </span>
+                        <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">{n.description}</p>
+                        
+                        {hasAttachment && (
+                          <div className="pt-2">
+                            {isNoticePdf ? (
+                              <a
+                                href={attachmentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-rose-100 bg-rose-50/50 hover:bg-rose-50 text-rose-700 font-extrabold rounded-xl text-[9px] transition-colors"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-rose-500" /> View Document (PDF)
+                              </a>
+                            ) : (
+                              <div className="w-full rounded-xl overflow-hidden border border-slate-100 bg-slate-50 max-h-36">
+                                <img src={attachmentUrl} alt="Notice Attachment" className="w-full h-auto object-contain max-h-36" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* FOOTER */}

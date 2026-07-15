@@ -148,7 +148,8 @@ const AdminDashboard = () => {
     classes: [],
     teachers: [],
     enquiries: [],
-    image: null
+    image: null,
+    sendEmail: false
   });
 
   // Filter & Search states
@@ -1134,7 +1135,8 @@ const AdminDashboard = () => {
       classes: [],
       teachers: [],
       enquiries: [],
-      image: null
+      image: null,
+      sendEmail: false
     });
   };
 
@@ -1162,6 +1164,7 @@ const AdminDashboard = () => {
       formData.append('teachers', JSON.stringify(broadcastForm.teachers));
       formData.append('enquiries', JSON.stringify(broadcastForm.enquiries));
       formData.append('isAnnouncement', isAnnouncementMode ? 'true' : 'false');
+      formData.append('sendEmail', broadcastForm.sendEmail ? 'true' : 'false');
       if (broadcastForm.image) {
         formData.append('image', broadcastForm.image);
       }
@@ -3848,6 +3851,14 @@ const AdminDashboard = () => {
                               {enquiry.mobileNumber}
                             </a>
                           </div>
+                          {enquiry.email && (
+                            <div className="flex justify-between">
+                              <span className="font-semibold text-slate-400">Email Address:</span>
+                              <a href={`mailto:${enquiry.email}`} className="font-bold text-secondary hover:underline truncate max-w-[150px]" title={enquiry.email}>
+                                {enquiry.email}
+                              </a>
+                            </div>
+                          )}
                         </div>
 
                         {/* Admin-only Note Section */}
@@ -6007,6 +6018,13 @@ const AdminDashboard = () => {
                   </div>
                 )}
               </div>
+
+              {/* Send Email to Enquiries Option */}
+              {broadcastForm.enquiries.length > 0 && (
+                <div className="p-3 bg-indigo-50/50 border border-indigo-100/50 text-indigo-900 rounded-2xl text-[11px] font-semibold">
+                  ✉️ Selected enquiries will automatically receive this broadcast via email.
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">

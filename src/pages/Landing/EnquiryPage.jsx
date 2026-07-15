@@ -21,6 +21,7 @@ const EnquiryPage = () => {
     studentName: '',
     fatherName: '',
     mobileNumber: '',
+    email: '',
     title: '',
     description: ''
   });
@@ -28,8 +29,8 @@ const EnquiryPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { studentName, fatherName, mobileNumber, title, description } = form;
-    if (!studentName || !fatherName || !mobileNumber || !title || !description) {
+    const { studentName, fatherName, mobileNumber, email, title, description } = form;
+    if (!studentName || !fatherName || !mobileNumber || !email || !title || !description) {
       showToast('Please fill in all fields', 'error');
       return;
     }
@@ -62,6 +63,7 @@ const EnquiryPage = () => {
         studentName: '',
         fatherName: '',
         mobileNumber: '',
+        email: '',
         title: '',
         description: ''
       });
@@ -195,16 +197,28 @@ const EnquiryPage = () => {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Subject / Enquiry Title *</label>
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Email Address *</label>
                   <input
-                    type="text"
+                    type="email"
                     required
-                    value={form.title}
-                    onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="e.g. Admission for Class 10 Batch"
+                    value={form.email}
+                    onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="Enter your email address"
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-1 focus:ring-primary text-slate-700 font-medium"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Subject / Enquiry Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={form.title}
+                  onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="e.g. Admission for Class 10 Batch"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-1 focus:ring-primary text-slate-700 font-medium"
+                />
               </div>
 
               <div className="space-y-1">
