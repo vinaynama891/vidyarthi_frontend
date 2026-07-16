@@ -21,7 +21,6 @@ const EnquiryPage = () => {
     studentName: '',
     fatherName: '',
     mobileNumber: '',
-    email: '',
     title: '',
     description: ''
   });
@@ -29,8 +28,8 @@ const EnquiryPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { studentName, fatherName, mobileNumber, email, title, description } = form;
-    if (!studentName || !fatherName || !mobileNumber || !email || !title || !description) {
+    const { studentName, fatherName, mobileNumber, title, description } = form;
+    if (!studentName || !fatherName || !mobileNumber || !title || !description) {
       showToast('Please fill in all fields', 'error');
       return;
     }
@@ -59,11 +58,27 @@ const EnquiryPage = () => {
       }
 
       showToast('Your Enquiry has been submitted successfully!', 'success');
+
+      // Construct WhatsApp message and redirect
+      const whatsappNumber = '919703040756';
+      const whatsappText = `*📚 New Admission Enquiry*
+
+👤 *Student Name:* ${studentName}
+👨 *Father's Name:* ${fatherName}
+📞 *Mobile Number:* ${mobileNumber}
+📝 *Subject:* ${title}
+💬 *Query:* ${description}
+
+---
+_Submitted via Vidyarthi Classes website_`;
+
+      const whatsappUrl = `https://api.whatsapp.com/send?phone=${whatsappNumber}&text=${encodeURIComponent(whatsappText)}`;
+      window.open(whatsappUrl, '_blank');
+
       setForm({
         studentName: '',
         fatherName: '',
         mobileNumber: '',
-        email: '',
         title: '',
         description: ''
       });
@@ -177,34 +192,20 @@ const EnquiryPage = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Mobile Number *</label>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
-                      <Phone className="w-4 h-4" />
-                    </span>
-                    <input
-                      type="tel"
-                      required
-                      pattern="[0-9]{10}"
-                      value={form.mobileNumber}
-                      onChange={(e) => setForm(prev => ({ ...prev, mobileNumber: e.target.value }))}
-                      placeholder="10-digit mobile number"
-                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-1 focus:ring-primary text-slate-700 font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Email Address *</label>
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase tracking-wider block">Mobile Number *</label>
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-400">
+                    <Phone className="w-4 h-4" />
+                  </span>
                   <input
-                    type="email"
+                    type="tel"
                     required
-                    value={form.email}
-                    onChange={(e) => setForm(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="Enter your email address"
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-1 focus:ring-primary text-slate-700 font-medium"
+                    pattern="[0-9]{10}"
+                    value={form.mobileNumber}
+                    onChange={(e) => setForm(prev => ({ ...prev, mobileNumber: e.target.value }))}
+                    placeholder="10-digit mobile number"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:ring-1 focus:ring-primary text-slate-700 font-medium"
                   />
                 </div>
               </div>
