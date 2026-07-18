@@ -48,6 +48,10 @@ const AdminDashboard = () => {
   const { admin, logout, apiFetch } = useAuth();
   const { showToast } = useToast();
 
+  const getLocalDateStr = (d = new Date()) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   // Sidebar mobile state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -80,7 +84,7 @@ const AdminDashboard = () => {
   const [selectedClassView, setSelectedClassView] = useState(null);
   const [attendanceSubTab, setAttendanceSubTab] = useState('students');
   const [selectedClassAttendance, setSelectedClassAttendance] = useState(null);
-  const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attendanceDate, setAttendanceDate] = useState(getLocalDateStr());
   const [attendanceRegistry, setAttendanceRegistry] = useState({});
   const [feeRecords, setFeeRecords] = useState([]);
   const [expenses, setExpenses] = useState([]);
@@ -174,7 +178,18 @@ const AdminDashboard = () => {
   });
   const [generatedCredentials, setGeneratedCredentials] = useState(null);
   const [isTeacherModalOpen, setIsTeacherModalOpen] = useState(false);
+  const [isPaySalaryModalOpen, setIsPaySalaryModalOpen] = useState(false);
+  const [selectedPaySalaryTeacher, setSelectedPaySalaryTeacher] = useState(null);
+  const [paidSalaryAmount, setPaidSalaryAmount] = useState('');
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
+
+  // View Attendance States
+  const [isViewAttendanceModalOpen, setIsViewAttendanceModalOpen] = useState(false);
+  const [selectedViewAttendanceUser, setSelectedViewAttendanceUser] = useState(null);
+  const [viewAttendanceUserType, setViewAttendanceUserType] = useState('student');
+  const [viewAttendanceHistory, setViewAttendanceHistory] = useState([]);
+  const [viewAttendanceCurrentDate, setViewAttendanceCurrentDate] = useState(new Date());
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [isAchievementModalOpen, setIsAchievementModalOpen] = useState(false);
   const [isGalleryModalOpen, setIsGalleryModalOpen] = useState(false);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
@@ -495,7 +510,7 @@ const AdminDashboard = () => {
     phone: '',
     email: '',
     salary: 0,
-    joiningDate: new Date().toISOString().split('T')[0]
+    joiningDate: getLocalDateStr()
   });
 
   // --- EXPENSE FORM STATE ---
@@ -503,7 +518,7 @@ const AdminDashboard = () => {
     title: '',
     category: 'Rent',
     amount: 0,
-    date: new Date().toISOString().split('T')[0],
+    date: getLocalDateStr(),
     description: ''
   });
 
@@ -625,6 +640,63 @@ const AdminDashboard = () => {
     } catch (err) {
       console.warn('Could not fetch attendance records:', err.message);
     }
+  };
+
+  const fetchViewAttendanceHistory = async (userType, id) => {
+    try {
+      setLoadingHistory(true);
+      const data = await apiFetch(`/api/attendance/history/${userType}/${id}`);
+      setViewAttendanceHistory(data || []);
+    } catch (err) {
+      showToast(err.message || 'Failed to fetch attendance history', 'error');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const getDaysInMonth = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const adjustedFirstDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1;
+    return { totalDays, adjustedFirstDay };
+  };
+
+  const getMemberDayStatus = (day, month, year) => {
+    if (!selectedViewAttendanceUser) return 'unmarked';
+    const today = new Date();
+    const targetDate = new Date(year, month, day);
+
+    const pad = (num) => num.toString().padStart(2, '0');
+    const dateString = `${year}-${pad(month + 1)}-${pad(day)}`;
+
+    const matchedRecord = viewAttendanceHistory.find(rec => rec.date === dateString);
+    if (matchedRecord) {
+      return matchedRecord.status;
+    }
+
+    if (targetDate > today) {
+      return 'unmarked';
+    }
+
+    const dayOfWeek = targetDate.getDay();
+    if (dayOfWeek === 0) {
+      return 'holiday';
+    }
+
+    const holidays = [
+      { m: 0, d: 26 },
+      { m: 7, d: 15 },
+      { m: 9, d: 2 },
+      { m: 11, d: 25 },
+    ];
+
+    if (holidays.some(h => h.m === month && h.d === day)) {
+      return 'holiday';
+    }
+
+    return 'unmarked';
   };
 
   const handleSaveStudentAttendance = async () => {
@@ -1612,7 +1684,7 @@ const AdminDashboard = () => {
       phone: '',
       email: '',
       salary: 0,
-      joiningDate: new Date().toISOString().split('T')[0]
+      joiningDate: getLocalDateStr()
     });
   };
 
@@ -1621,7 +1693,7 @@ const AdminDashboard = () => {
       title: '',
       category: 'Rent',
       amount: 0,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateStr(),
       description: ''
     });
   };
@@ -1822,7 +1894,7 @@ const AdminDashboard = () => {
       phone: teacher.phone,
       email: teacher.email,
       salary: teacher.salary,
-      joiningDate: new Date(teacher.joiningDate).toISOString().split('T')[0]
+      joiningDate: getLocalDateStr(new Date(teacher.joiningDate))
     });
     setIsTeacherModalOpen(true);
   };
@@ -2128,7 +2200,28 @@ const AdminDashboard = () => {
                                   {student.class}
                                 </span>
                               </td>
-                              <td className="px-6 py-4">{student.phone}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{student.phone}</span>
+                                  {student.phone && (
+                                    <button
+                                      onClick={() => {
+                                        let cleaned = student.phone.replace(/\D/g, '');
+                                        if (cleaned.length === 10) {
+                                          cleaned = '91' + cleaned;
+                                        }
+                                        window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
+                                      }}
+                                      className="text-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer inline-flex items-center"
+                                      title="Chat on WhatsApp"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 fill-current" viewBox="0 0 448 512">
+                                        <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                               <td className="px-6 py-4 font-stats">
                                 {student.studentType === 'NotesOnly' ? '-' : `₹${student.totalFees.toLocaleString()}`}
                               </td>
@@ -2166,6 +2259,23 @@ const AdminDashboard = () => {
                                 >
                                   <FileText className="w-4 h-4" />
                                 </button>
+                                {student.phone && (
+                                  <button
+                                    onClick={() => {
+                                      let cleaned = student.phone.replace(/\D/g, '');
+                                      if (cleaned.length === 10) {
+                                        cleaned = '91' + cleaned;
+                                      }
+                                      window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
+                                    }}
+                                    className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
+                                    title="Chat on WhatsApp"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 fill-current" viewBox="0 0 448 512">
+                                      <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                                    </svg>
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => openEditStudent(student)}
                                   className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-primary/5 hover:text-primary transition-colors cursor-pointer"
@@ -2297,13 +2407,51 @@ const AdminDashboard = () => {
                                     {student.class}
                                   </span>
                                 </td>
-                                <td className="px-6 py-4">{student.phone}</td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{student.phone}</span>
+                                    {student.phone && (
+                                      <button
+                                        onClick={() => {
+                                          let cleaned = student.phone.replace(/\D/g, '');
+                                          if (cleaned.length === 10) {
+                                            cleaned = '91' + cleaned;
+                                          }
+                                          window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
+                                        }}
+                                        className="text-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer inline-flex items-center"
+                                        title="Chat on WhatsApp"
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 fill-current" viewBox="0 0 448 512">
+                                          <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
                                 <td className="px-6 py-4">
                                   <span className="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-md font-bold text-[10px]">
                                     {noteCount} Note{noteCount !== 1 ? 's' : ''} Unlocked
                                   </span>
                                 </td>
                                 <td className="px-6 py-4 flex items-center justify-center gap-2">
+                                  {student.phone && (
+                                    <button
+                                      onClick={() => {
+                                        let cleaned = student.phone.replace(/\D/g, '');
+                                        if (cleaned.length === 10) {
+                                          cleaned = '91' + cleaned;
+                                        }
+                                        window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
+                                      }}
+                                      className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
+                                      title="Chat on WhatsApp"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 fill-current" viewBox="0 0 448 512">
+                                        <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                                      </svg>
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => openEditStudent(student)}
                                     className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-primary/5 hover:text-primary transition-colors cursor-pointer"
@@ -2439,7 +2587,28 @@ const AdminDashboard = () => {
                                 ))}
                               </div>
                             </td>
-                            <td className="px-6 py-4">{teacher.phone}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-1.5">
+                                <span>{teacher.phone}</span>
+                                {teacher.phone && (
+                                  <button
+                                    onClick={() => {
+                                      let cleaned = teacher.phone.replace(/\D/g, '');
+                                      if (cleaned.length === 10) {
+                                        cleaned = '91' + cleaned;
+                                      }
+                                      window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
+                                    }}
+                                    className="text-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer inline-flex items-center"
+                                    title="Chat on WhatsApp"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 fill-current" viewBox="0 0 448 512">
+                                      <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                                    </svg>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-6 py-4 font-stats">₹{teacher.salary.toLocaleString()}</td>
                             <td className="px-6 py-4 font-stats">₹{(teacher.perDaySalary || Math.round(teacher.salary / 30)).toLocaleString()}</td>
                             <td className="px-6 py-4 font-semibold">
@@ -2455,6 +2624,34 @@ const AdminDashboard = () => {
                               })}
                             </td>
                             <td className="px-6 py-4 flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedPaySalaryTeacher(teacher);
+                                  setPaidSalaryAmount(teacher.salaryEarned || 0);
+                                  setIsPaySalaryModalOpen(true);
+                                }}
+                                className="px-2.5 py-1.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-[10px] font-bold transition-all shadow hover:shadow-md cursor-pointer flex items-center gap-1.5 shrink-0"
+                                title="Pay Salary"
+                              >
+                                <Coins className="w-3.5 h-3.5" /> Pay
+                              </button>
+                              {teacher.phone && (
+                                <button
+                                  onClick={() => {
+                                    let cleaned = teacher.phone.replace(/\D/g, '');
+                                    if (cleaned.length === 10) {
+                                      cleaned = '91' + cleaned;
+                                    }
+                                    window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
+                                  }}
+                                  className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
+                                  title="Chat on WhatsApp"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 fill-current" viewBox="0 0 448 512">
+                                    <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                                  </svg>
+                                </button>
+                              )}
                               <button
                                 onClick={() => openEditTeacher(teacher)}
                                 className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-primary/5 hover:text-primary transition-colors cursor-pointer"
@@ -3199,7 +3396,7 @@ const AdminDashboard = () => {
                   <input
                     type="date"
                     value={attendanceDate}
-                    max={new Date().toISOString().split('T')[0]}
+                    max={getLocalDateStr()}
                     onChange={(e) => setAttendanceDate(e.target.value)}
                     className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary font-semibold"
                   />
@@ -3321,7 +3518,24 @@ const AdminDashboard = () => {
                                       <tr key={s._id} className="hover:bg-slate-50/30 transition-colors">
                                         <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
                                         <td className="px-6 py-4 text-primary font-stats font-bold">{s.studentId}</td>
-                                        <td className="px-6 py-4 font-bold text-slate-800">{s.name}</td>
+                                        <td className="px-6 py-4">
+                                          <div className="flex items-center justify-between gap-2 max-w-[200px]">
+                                            <span className="font-bold text-slate-800">{s.name}</span>
+                                            <button
+                                              onClick={() => {
+                                                setSelectedViewAttendanceUser(s);
+                                                setViewAttendanceUserType('student');
+                                                setViewAttendanceCurrentDate(new Date());
+                                                setIsViewAttendanceModalOpen(true);
+                                                fetchViewAttendanceHistory('student', s.studentId);
+                                              }}
+                                              className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors shrink-0"
+                                              title="View Attendance History"
+                                            >
+                                              History
+                                            </button>
+                                          </div>
+                                        </td>
                                         <td className="px-6 py-4 text-center">
                                           <div className="flex items-center justify-center gap-4">
                                             {/* Present */}
@@ -3444,7 +3658,24 @@ const AdminDashboard = () => {
                                 <tr key={t._id} className="hover:bg-slate-50/30 transition-colors">
                                   <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
                                   <td className="px-6 py-4 text-primary font-stats font-bold">{t.teacherId || `T-${t._id.toString().substring(18).toUpperCase()}`}</td>
-                                  <td className="px-6 py-4 font-bold text-slate-800">{t.name}</td>
+                                  <td className="px-6 py-4">
+                                    <div className="flex items-center justify-between gap-2 max-w-[200px]">
+                                      <span className="font-bold text-slate-800">{t.name}</span>
+                                      <button
+                                        onClick={() => {
+                                          setSelectedViewAttendanceUser(t);
+                                          setViewAttendanceUserType('teacher');
+                                          setViewAttendanceCurrentDate(new Date());
+                                          setIsViewAttendanceModalOpen(true);
+                                          fetchViewAttendanceHistory('teacher', t._id);
+                                        }}
+                                        className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors shrink-0"
+                                        title="View Attendance History"
+                                      >
+                                        History
+                                      </button>
+                                    </div>
+                                  </td>
                                   <td className="px-6 py-4 text-slate-450">{t.subject || 'General'}</td>
                                   <td className="px-6 py-4 text-center">
                                     {isBeforeJoining ? (
@@ -4751,7 +4982,7 @@ const AdminDashboard = () => {
                       <input
                         type="date"
                         id="inst-date"
-                        defaultValue={new Date().toISOString().split('T')[0]}
+                        defaultValue={getLocalDateStr()}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg outline-none text-slate-700 font-medium"
                       />
                     </div>
@@ -4788,7 +5019,7 @@ const AdminDashboard = () => {
                         }
                         
                         const newInst = {
-                          date: dateVal || new Date().toISOString().split('T')[0],
+                          date: dateVal || getLocalDateStr(),
                           amount: amtVal,
                           method: methodVal,
                           remarks: 'Installment'
@@ -5255,6 +5486,313 @@ const AdminDashboard = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================== */}
+      {/* ==================== PAY SALARY MODAL ==================== */}
+      {/* ========================================================== */}
+      {isPaySalaryModalOpen && selectedPaySalaryTeacher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <h3 className="text-sm font-bold text-primary font-heading flex items-center gap-2">
+                <Coins className="w-5 h-5 text-emerald-600" />
+                Pay Teacher Salary
+              </h3>
+              <button
+                onClick={() => {
+                  setIsPaySalaryModalOpen(false);
+                  setSelectedPaySalaryTeacher(null);
+                  setPaidSalaryAmount('');
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <div className="p-6 space-y-4 text-left text-xs">
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-2">
+                <div className="flex justify-between">
+                  <span className="font-bold text-slate-500 uppercase tracking-wider">Teacher Name:</span>
+                  <span className="font-extrabold text-slate-800">{selectedPaySalaryTeacher.name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-bold text-slate-500 uppercase tracking-wider">Subject:</span>
+                  <span className="font-bold text-secondary">{selectedPaySalaryTeacher.subject}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-bold text-slate-500 uppercase tracking-wider">Salary Month:</span>
+                  <span className="font-bold text-slate-700">
+                    {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][parseInt(salaryMonth) - 1]} {salaryYear}
+                  </span>
+                </div>
+                <div className="border-t border-slate-200/60 my-2 pt-2 flex justify-between">
+                  <span className="font-extrabold text-primary uppercase tracking-wider">Salary Earned (अर्जित):</span>
+                  <span className="font-extrabold text-primary text-sm font-stats">₹{(selectedPaySalaryTeacher.salaryEarned || 0).toLocaleString()}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-extrabold text-slate-500 uppercase tracking-wider block">Paid Amount (भुगतान राशि) *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-sm">₹</span>
+                  <input
+                    type="number"
+                    value={paidSalaryAmount}
+                    onChange={(e) => setPaidSalaryAmount(e.target.value)}
+                    placeholder="Enter amount paid to teacher..."
+                    className="w-full pl-7 pr-4 py-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none focus:bg-white focus:ring-2 focus:ring-primary/10 focus:border-primary font-bold text-slate-700"
+                    required
+                  />
+                </div>
+              </div>
+
+              {selectedPaySalaryTeacher && paidSalaryAmount !== '' && (
+                <div className="bg-amber-50/50 border border-amber-100 p-3 rounded-xl flex justify-between items-center">
+                  <span className="font-bold text-amber-800 uppercase tracking-wider">Remaining Balance (शेष):</span>
+                  <span className="font-extrabold text-amber-800 font-stats">
+                    ₹{((selectedPaySalaryTeacher.salaryEarned || 0) - parseFloat(paidSalaryAmount || 0)).toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsPaySalaryModalOpen(false);
+                    setSelectedPaySalaryTeacher(null);
+                    setPaidSalaryAmount('');
+                  }}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (paidSalaryAmount === '') return;
+                    
+                    const teacherName = selectedPaySalaryTeacher.name;
+                    const totalSalary = selectedPaySalaryTeacher.salaryEarned || 0;
+                    const paidAmount = parseFloat(paidSalaryAmount || 0);
+                    const remainingAmount = totalSalary - paidAmount;
+                    const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][parseInt(salaryMonth) - 1];
+                    
+                    const message = `*Salary Processed - Vidyarthi Classes*\n\n` +
+                      `Hello *${teacherName}*,\n` +
+                      `Your salary details for *${monthName} ${salaryYear}* have been processed.\n\n` +
+                      `• Total Salary (कुल सैलरी): ₹${totalSalary.toLocaleString()}\n` +
+                      `• Amount Paid (भुगतान राशि): ₹${paidAmount.toLocaleString()}\n` +
+                      `• Remaining Balance (शेष राशि): ₹${remainingAmount.toLocaleString()}\n\n` +
+                      `Thank you!`;
+
+                    let cleaned = selectedPaySalaryTeacher.phone.replace(/\D/g, '');
+                    if (cleaned.length === 10) {
+                      cleaned = '91' + cleaned;
+                    }
+                    
+                    window.open(`https://api.whatsapp.com/send?phone=${cleaned}&text=${encodeURIComponent(message)}`, '_blank');
+                    
+                    setIsPaySalaryModalOpen(false);
+                    setSelectedPaySalaryTeacher(null);
+                    setPaidSalaryAmount('');
+                  }}
+                  disabled={paidSalaryAmount === ''}
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl font-bold shadow-md hover:shadow-lg cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 fill-current" viewBox="0 0 448 512">
+                    <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
+                  </svg>
+                  Send WhatsApp Update
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================== */}
+      {/* ==================== VIEW ATTENDANCE HISTORY MODAL ====== */}
+      {/* ========================================================== */}
+      {isViewAttendanceModalOpen && selectedViewAttendanceUser && (
+        <div
+          onClick={() => {
+            setIsViewAttendanceModalOpen(false);
+            setSelectedViewAttendanceUser(null);
+            setViewAttendanceHistory([]);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden transform scale-100 transition-all duration-300"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-slate-50 border-b border-slate-100">
+              <div className="text-left">
+                <h3 className="text-sm font-bold text-primary font-heading">
+                  Attendance History
+                </h3>
+                <span className="text-[10px] font-bold text-slate-400 block mt-0.5 uppercase tracking-wider">
+                  {viewAttendanceUserType === 'student' ? 'Student' : 'Teacher'}: {selectedViewAttendanceUser.name}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setIsViewAttendanceModalOpen(false);
+                  setSelectedViewAttendanceUser(null);
+                  setViewAttendanceHistory([]);
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors p-1.5 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-5 text-center text-xs">
+              {/* Month Shift Controls */}
+              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newDate = new Date(viewAttendanceCurrentDate.getFullYear(), viewAttendanceCurrentDate.getMonth() - 1, 1);
+                    setViewAttendanceCurrentDate(newDate);
+                  }}
+                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-[10px] font-bold transition-all cursor-pointer"
+                >
+                  &larr; Prev
+                </button>
+                <span className="font-extrabold text-slate-800 uppercase tracking-wider">
+                  {viewAttendanceCurrentDate.toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextDate = new Date(viewAttendanceCurrentDate.getFullYear(), viewAttendanceCurrentDate.getMonth() + 1, 1);
+                    if (nextDate <= new Date()) {
+                      setViewAttendanceCurrentDate(nextDate);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 rounded-xl text-[10px] font-bold transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={new Date(viewAttendanceCurrentDate.getFullYear(), viewAttendanceCurrentDate.getMonth() + 1, 1) > new Date()}
+                >
+                  Next &rarr;
+                </button>
+              </div>
+
+              {loadingHistory ? (
+                <div className="flex justify-center items-center py-12">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                </div>
+              ) : (
+                (() => {
+                  const { totalDays, adjustedFirstDay } = getDaysInMonth(viewAttendanceCurrentDate);
+                  const daysArray = Array.from({ length: totalDays }, (_, i) => i + 1);
+                  const blanksArray = Array.from({ length: adjustedFirstDay });
+
+                  // Stats count
+                  let pCount = 0;
+                  let aCount = 0;
+                  let hCount = 0;
+                  daysArray.forEach(d => {
+                    const status = getMemberDayStatus(d, viewAttendanceCurrentDate.getMonth(), viewAttendanceCurrentDate.getFullYear());
+                    if (status === 'present') pCount++;
+                    else if (status === 'absent') aCount++;
+                    else if (status === 'holiday') hCount++;
+                  });
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Stats Overview */}
+                      <div className="grid grid-cols-3 gap-2.5">
+                        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-2 text-center">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Present</span>
+                          <span className="text-xs font-extrabold text-emerald-600 font-stats">{pCount} Days</span>
+                        </div>
+                        <div className="bg-rose-50 border border-rose-100 rounded-2xl p-2 text-center">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Absent</span>
+                          <span className="text-xs font-extrabold text-danger font-stats">{aCount} Days</span>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-100 rounded-2xl p-2 text-center">
+                          <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Holiday</span>
+                          <span className="text-xs font-extrabold text-amber-600 font-stats">{hCount} Days</span>
+                        </div>
+                      </div>
+
+                      {/* Days Header */}
+                      <div className="grid grid-cols-7 text-center text-[9px] font-black text-slate-400 uppercase tracking-widest pt-2">
+                        <div>Mon</div>
+                        <div>Tue</div>
+                        <div>Wed</div>
+                        <div>Thu</div>
+                        <div>Fri</div>
+                        <div>Sat</div>
+                        <div className="text-rose-500">Sun</div>
+                      </div>
+
+                      {/* Days Grid */}
+                      <div className="grid grid-cols-7 gap-2.5 text-xs text-center font-bold">
+                        {blanksArray.map((_, idx) => (
+                          <div key={`blank-${idx}`} className="aspect-square" />
+                        ))}
+
+                        {daysArray.map((day) => {
+                          const status = getMemberDayStatus(day, viewAttendanceCurrentDate.getMonth(), viewAttendanceCurrentDate.getFullYear());
+                          
+                          let bgClass = 'bg-white border border-slate-100 text-slate-700 hover:bg-slate-50';
+                          let titleText = 'No record';
+
+                          if (status === 'present') {
+                            bgClass = 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100/70';
+                            titleText = 'Present';
+                          } else if (status === 'absent') {
+                            bgClass = 'bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100/70';
+                            titleText = 'Absent';
+                          } else if (status === 'holiday') {
+                            bgClass = 'bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100/70';
+                            titleText = 'Holiday';
+                          } else if (status === 'unmarked') {
+                            bgClass = 'bg-slate-50 border border-slate-150 text-slate-400 hover:bg-slate-100';
+                            titleText = 'Unmarked';
+                          }
+
+                          return (
+                            <div
+                              key={`day-${day}`}
+                              title={`${day} ${viewAttendanceCurrentDate.toLocaleString('en-IN', { month: 'short' })}: ${titleText}`}
+                              className={`aspect-square flex items-center justify-center rounded-xl transition-all duration-200 cursor-pointer shadow-sm select-none ${bgClass}`}
+                            >
+                              {day}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsViewAttendanceModalOpen(false);
+                    setSelectedViewAttendanceUser(null);
+                    setViewAttendanceHistory([]);
+                  }}
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold cursor-pointer transition-colors w-full"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

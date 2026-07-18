@@ -38,10 +38,14 @@ const TeacherDashboard = () => {
   const [activeModal, setActiveModal] = useState(null);
   const [activeSection, setActiveSection] = useState('attendance'); // 'test-marks' | 'attendance' | 'announcements'
 
+  const getLocalDateStr = (d = new Date()) => {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
   // Test Submission Form States
   const [selectedClass, setSelectedClass] = useState('');
   const [subject, setSubject] = useState('');
-  const [testDate, setTestDate] = useState(new Date().toISOString().split('T')[0]);
+  const [testDate, setTestDate] = useState(getLocalDateStr());
   const [students, setStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [submittingTest, setSubmittingTest] = useState(false);
@@ -167,15 +171,7 @@ const TeacherDashboard = () => {
       return 'holiday';
     }
 
-    // Deterministic status based on date + teacherId hash
-    const seed = (day * 3 + month * 7 + year + teacherId.charCodeAt(0) + (teacherId.charCodeAt(1) || 0)) % 100;
-    
-    // 5% chance of absence
-    if (seed < 5) {
-      return 'absent';
-    }
-    
-    return 'present';
+    return 'unmarked';
   };
 
   const changeMonth = (offset) => {

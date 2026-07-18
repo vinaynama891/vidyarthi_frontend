@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
 import SecureViewerModal from '../../components/SecureViewerModal';
+import ChangePasswordModal from '../../components/ChangePasswordModal';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -60,6 +61,7 @@ const StudentDashboard = () => {
   // Notification States & Handlers
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
   const [readNoticeIds, setReadNoticeIds] = useState([]);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   useEffect(() => {
     const savedRead = localStorage.getItem('vidyarthi_read_notices');
@@ -587,16 +589,7 @@ const StudentDashboard = () => {
       return 'holiday';
     }
 
-    // Deterministic status based on date + studentId hash
-    // Generates ~90% attendance, so present is highly probable
-    const seed = (day * 3 + month * 7 + year + studentId.charCodeAt(0) + (studentId.charCodeAt(1) || 0)) % 100;
-    
-    // 8% chance of absence
-    if (seed < 8) {
-      return 'absent';
-    }
-    
-    return 'present';
+    return 'unmarked';
   };
 
   const changeMonth = (offset) => {
@@ -685,6 +678,15 @@ const StudentDashboard = () => {
                 {unreadNoticesCount}
               </span>
             )}
+          </button>
+
+          <button
+            onClick={() => setIsChangePasswordOpen(true)}
+            className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 hover:border-indigo-200 text-indigo-700 px-4 py-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
+            title="Change Password"
+          >
+            <Lock className="w-4 h-4" />
+            <span className="hidden sm:inline">Change Password</span>
           </button>
 
           <button
@@ -2050,6 +2052,12 @@ const StudentDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal 
+        isOpen={isChangePasswordOpen} 
+        onClose={() => setIsChangePasswordOpen(false)} 
+      />
     </div>
   );
 };
