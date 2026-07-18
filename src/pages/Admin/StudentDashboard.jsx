@@ -26,8 +26,8 @@ import {
   ChevronRight
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
+import paymentQr from '../../assets/payment_qr.png';
 import SecureViewerModal from '../../components/SecureViewerModal';
-import ChangePasswordModal from '../../components/ChangePasswordModal';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -40,6 +40,11 @@ const StudentDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('fees'); // 'material', 'fees', 'notices', 'results', 'attendance', 'online-tests'
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [isPayOnlineModalOpen, setIsPayOnlineModalOpen] = useState(false);
+  const [payStep, setPayStep] = useState(1); // 1: QR code, 2: Form
+  const [transactionId, setTransactionId] = useState('');
+  const [amountPaid, setAmountPaid] = useState('');
+  const [submittingPayment, setSubmittingPayment] = useState(false);
   const [studyMaterials, setStudyMaterials] = useState([]);
   const [selectedNote, setSelectedNote] = useState(null);
 
@@ -61,7 +66,6 @@ const StudentDashboard = () => {
   // Notification States & Handlers
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
   const [readNoticeIds, setReadNoticeIds] = useState([]);
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   useEffect(() => {
     const savedRead = localStorage.getItem('vidyarthi_read_notices');
@@ -282,6 +286,60 @@ const StudentDashboard = () => {
     logout();
     showToast('Logged out successfully', 'info');
     navigate('/');
+  };
+
+  const handlePayOnlineSubmit = async (e) => {
+    e.preventDefault();
+    if (!transactionId.trim() || !amountPaid) {
+      showToast('Please enter both Transaction ID and Amount Paid', 'warning');
+      return;
+    }
+
+    try {
+      setSubmittingPayment(true);
+
+      // Calculate pending fee balance
+      const netFees = profile.totalFees - profile.discount;
+      const currentPending = netFees - profile.paidFees;
+      const remainingPending = Math.max(0, currentPending - Number(amountPaid));
+
+      // 1. Submit to backend database/API
+      const res = await apiFetch('/api/students/report-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transactionId: transactionId.trim(),
+          amount: amountPaid
+        })
+      });
+
+      // 2. Open WhatsApp pre-filled template link
+      const adminNumber = '919703040756';
+      const messageText = `*💳 New Fee Payment Submitted!*
+
+👤 *Student Name:* ${profile.name}
+🆔 *Student ID:* ${profile.studentId}
+📞 *Mobile Number:* ${profile.phone}
+💰 *Amount Paid:* ₹${Number(amountPaid).toLocaleString()}
+⏳ *Remaining Dues:* ₹${remainingPending.toLocaleString()}
+🔑 *Transaction ID:* ${transactionId.trim()}
+
+Please verify the transaction and update my receipt. Thank you!`;
+
+      const whatsappUrl = `https://wa.me/${adminNumber}?text=${encodeURIComponent(messageText)}`;
+      window.open(whatsappUrl, '_blank');
+
+      showToast(res.message || 'Payment reported successfully! Opening WhatsApp...', 'success');
+      setIsPayOnlineModalOpen(false);
+      // Reset state
+      setTransactionId('');
+      setAmountPaid('');
+      setPayStep(1);
+    } catch (err) {
+      showToast(err.message || 'Failed to submit payment details', 'error');
+    } finally {
+      setSubmittingPayment(false);
+    }
   };
 
   const handlePrintReceipt = (student) => {
@@ -681,15 +739,6 @@ const StudentDashboard = () => {
           </button>
 
           <button
-            onClick={() => setIsChangePasswordOpen(true)}
-            className="bg-indigo-50 hover:bg-indigo-100 border border-indigo-150 hover:border-indigo-200 text-indigo-700 px-4 py-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
-            title="Change Password"
-          >
-            <Lock className="w-4 h-4" />
-            <span className="hidden sm:inline">Change Password</span>
-          </button>
-
-          <button
             onClick={() => navigate('/')}
             className="bg-slate-50 hover:bg-slate-100 border border-slate-150 hover:border-slate-200 text-slate-700 px-4 py-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-2 text-xs font-semibold"
             title="Back to Website"
@@ -987,13 +1036,28 @@ const StudentDashboard = () => {
                   <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><CreditCard className="w-5 h-5" /></div>
                   <h3 className="text-base font-extrabold text-primary font-heading">Fee Ledger & Receipts</h3>
                 </div>
-                <button
-                  onClick={() => setIsReceiptModalOpen(true)}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-light text-white text-[11px] font-bold rounded-xl shadow-md transition-all duration-200 cursor-pointer font-sans"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  View Fee Receipt (Invoice)
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsReceiptModalOpen(true)}
+                    className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-light text-white text-[11px] font-bold rounded-xl shadow-md transition-all duration-200 cursor-pointer font-sans"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    View Fee Receipt (Invoice)
+                  </button>
+                  <button
+                    onClick={() => {
+                      const netFees = profile.totalFees - profile.discount;
+                      const pending = netFees - profile.paidFees;
+                      setAmountPaid(pending > 0 ? pending.toString() : '');
+                      setPayStep(1);
+                      setIsPayOnlineModalOpen(true);
+                    }}
+                    className="flex items-center justify-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-xl shadow-md transition-all duration-200 cursor-pointer font-sans"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Pay Fee Online
+                  </button>
+                </div>
               </div>
 
               {/* Grid of details */}
@@ -2052,12 +2116,121 @@ const StudentDashboard = () => {
           </div>
         </div>
       )}
+      {/* Pay Online Modal */}
+      {isPayOnlineModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 max-w-md w-full overflow-hidden transform transition-all duration-300 animate-scale-in">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white">
+              <div className="flex items-center gap-2.5">
+                <CreditCard className="w-5 h-5" />
+                <h3 className="text-base font-extrabold font-heading">Pay Tuition Fee Online</h3>
+              </div>
+              <button
+                onClick={() => setIsPayOnlineModalOpen(false)}
+                className="p-1.5 hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      {/* Change Password Modal */}
-      <ChangePasswordModal 
-        isOpen={isChangePasswordOpen} 
-        onClose={() => setIsChangePasswordOpen(false)} 
-      />
+            {/* Content */}
+            <div className="p-6">
+              {payStep === 1 ? (
+                /* Step 1: Show QR Code */
+                <div className="space-y-6 text-center">
+                  <p className="text-xs text-slate-500 font-medium">
+                    Scan the PhonePe QR code below using any UPI app (PhonePe, Google Pay, Paytm, Bhim, etc.) to pay your fees.
+                  </p>
+                  
+                  <div className="flex justify-center p-4 bg-slate-50 rounded-2xl border border-slate-150 max-w-[240px] mx-auto">
+                    <img 
+                      src={paymentQr} 
+                      alt="PhonePe Payment QR" 
+                      className="w-full h-auto object-contain rounded-lg shadow-sm"
+                    />
+                  </div>
+
+                  <div className="p-3.5 bg-emerald-50 border border-emerald-100 rounded-2xl text-left">
+                    <span className="text-[9px] text-emerald-700 font-black uppercase tracking-wider block">Important Note</span>
+                    <span className="text-[11px] text-emerald-800 font-medium block mt-0.5 leading-relaxed">
+                      After completing the payment, please click the <strong>Done / Next Step</strong> button to report your payment details so we can update your ledger.
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => setPayStep(2)}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-2xl transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg flex items-center justify-center gap-2 text-sm"
+                  >
+                    Done / Next Step
+                  </button>
+                </div>
+              ) : (
+                /* Step 2: Form */
+                <form onSubmit={handlePayOnlineSubmit} className="space-y-5">
+                  <p className="text-xs text-slate-500 font-medium">
+                    Please provide the transaction details of your payment. We will notify the administration to verify and update your receipt.
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-1">
+                        Amount Paid (₹) *
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 5000"
+                        value={amountPaid}
+                        onChange={(e) => setAmountPaid(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-2xl text-sm font-bold text-slate-800 outline-none transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] text-slate-400 font-black uppercase tracking-wider block mb-1">
+                        Transaction ID / UTR Number *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Enter 12-digit UTR or UPI Ref No"
+                        value={transactionId}
+                        onChange={(e) => setTransactionId(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white rounded-2xl text-sm font-bold text-slate-800 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPayStep(1)}
+                      className="w-1/3 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 font-extrabold rounded-2xl transition-colors cursor-pointer text-sm"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submittingPayment}
+                      className="w-2/3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-400 text-white font-extrabold rounded-2xl transition-all duration-200 cursor-pointer shadow-md flex items-center justify-center gap-1.5 text-sm"
+                    >
+                      {submittingPayment ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Submitting...
+                        </>
+                      ) : (
+                        'Submit Details'
+                      )}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

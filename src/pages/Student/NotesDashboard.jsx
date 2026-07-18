@@ -19,7 +19,6 @@ import {
   FileText
 } from 'lucide-react';
 import logo from '../../assets/logo.png';
-import ChangePasswordModal from '../../components/ChangePasswordModal';
 
 const NotesDashboard = () => {
   const navigate = useNavigate();
@@ -34,7 +33,6 @@ const NotesDashboard = () => {
   const [notices, setNotices] = useState([]);
   const [readNoticeIds, setReadNoticeIds] = useState([]);
   const [isNotificationDrawerOpen, setIsNotificationDrawerOpen] = useState(false);
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -141,13 +139,6 @@ const NotesDashboard = () => {
                     {unreadNoticesCount}
                   </span>
                 )}
-              </button>
-
-              <button
-                onClick={() => setIsChangePasswordOpen(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-indigo-750 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 hover:border-indigo-200 rounded-xl transition-all duration-200 cursor-pointer"
-              >
-                <Lock className="w-4 h-4" /> Change Password
               </button>
 
               <button
@@ -422,11 +413,6 @@ const NotesDashboard = () => {
           &copy; {new Date().getFullYear()} Vidyarthi Classes, Kota. All Rights Reserved.
         </div>
       </footer>
-      {/* Change Password Modal */}
-      <ChangePasswordModal 
-        isOpen={isChangePasswordOpen} 
-        onClose={() => setIsChangePasswordOpen(false)} 
-      />
     </div>
   );
 };
