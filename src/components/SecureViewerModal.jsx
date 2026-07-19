@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { X, Lock, FileText, Image, ShieldAlert } from 'lucide-react';
 
 const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
-  const [isBlurred, setIsBlurred] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -42,25 +41,8 @@ const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
       }
     };
 
-    const handleBlur = () => {
-      setIsBlurred(true);
-    };
-
-    const handleFocus = () => {
-      setIsBlurred(false);
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        setIsBlurred(true);
-      }
-    };
-
     window.addEventListener('contextmenu', handleContextMenu);
     window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       const el = document.getElementById('secure-viewer-print-styles');
@@ -68,9 +50,6 @@ const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
 
       window.removeEventListener('contextmenu', handleContextMenu);
       window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isOpen]);
 
@@ -128,19 +107,6 @@ const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
           <div className="absolute inset-0 pointer-events-none overflow-hidden grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-16 items-center justify-items-center p-8 z-20">
             {watermarks}
           </div>
-
-          {/* Secure Blur Screen on Defocus */}
-          {isBlurred && (
-            <div className="absolute inset-0 z-50 bg-slate-950/95 backdrop-blur-lg flex flex-col items-center justify-center text-center p-6">
-              <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-full flex items-center justify-center mb-4 border border-rose-500/20">
-                <ShieldAlert className="w-8 h-8 animate-pulse" />
-              </div>
-              <h4 className="text-lg font-bold text-white mb-2 uppercase tracking-wide">Screen Content Protected</h4>
-              <p className="text-slate-400 text-xs max-w-sm leading-relaxed">
-                Screenshots, recording, and focus loss are blocked. Click back inside the browser window to resume viewing this document.
-              </p>
-            </div>
-          )}
 
           {/* Content Render */}
           <div className="w-full h-full flex items-center justify-center p-1 select-none pointer-events-auto">
