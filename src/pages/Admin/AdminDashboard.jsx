@@ -52,7 +52,33 @@ const AdminDashboard = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
-  // Sidebar mobile state
+  const renderMaskedAmount = (amount, key, className = "") => {
+    const isRevealed = revealedAmounts[key];
+    return (
+      <span
+        onClick={(e) => {
+          e.stopPropagation();
+          setRevealedAmounts((prev) => ({ ...prev, [key]: !prev[key] }));
+        }}
+        className={`cursor-pointer hover:opacity-85 select-none transition-all duration-150 ${className}`}
+        title="Click to reveal/hide"
+      >
+        {isRevealed ? `₹${(amount || 0).toLocaleString()}` : '₹ XXXX'}
+      </span>
+    );
+  };
+
+  const getStudentSession = (createdAtStr) => {
+    const date = new Date(createdAtStr);
+    if (isNaN(date.getTime())) return '2026-27';
+    const year = date.getFullYear();
+    const month = date.getMonth(); // 0-11
+    if (month >= 4) { // May to Dec (May = 4)
+      return `${year}-${String(year + 1).slice(-2)}`;
+    } else { // Jan to Apr
+      return `${year - 1}-${String(year).slice(-2)}`;
+    }
+  };
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -88,6 +114,10 @@ const AdminDashboard = () => {
   const [attendanceRegistry, setAttendanceRegistry] = useState({});
   const [feeRecords, setFeeRecords] = useState([]);
   const [expenses, setExpenses] = useState([]);
+  const [revenueData, setRevenueData] = useState({ weekly: [], monthly: [], yearly: [] });
+  const [revenueSubTab, setRevenueSubTab] = useState('monthly');
+  const [loadingRevenue, setLoadingRevenue] = useState(false);
+  const [revealedAmounts, setRevealedAmounts] = useState({});
   const [testResults, setTestResults] = useState([]);
   const [achievements, setAchievements] = useState([]);
   const [gallery, setGallery] = useState([]);
@@ -159,6 +189,17 @@ const AdminDashboard = () => {
   // Filter & Search states
   const [studentSearch, setStudentSearch] = useState('');
   const [studentClassFilter, setStudentClassFilter] = useState('');
+  const [studentSessionFilter, setStudentSessionFilter] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    return month >= 4 
+      ? `${year}-${String(year + 1).slice(-2)}` 
+      : `${year - 1}-${String(year).slice(-2)}`;
+  });
+  const [alumniStudents, setAlumniStudents] = useState([]);
+  const [alumniSearch, setAlumniSearch] = useState('');
+  const [alumniClassFilter, setAlumniClassFilter] = useState('');
   const [teacherSearch, setTeacherSearch] = useState('');
   const [salaryMonth, setSalaryMonth] = useState((new Date().getMonth() + 1).toString());
   const [salaryYear, setSalaryYear] = useState(new Date().getFullYear().toString());
@@ -544,6 +585,7 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchStats();
     if (activeTab === 'dashboard') fetchStats();
+    else if (activeTab === 'revenue') fetchRevenueData();
     else if (activeTab === 'student') {
       fetchStudents();
       fetchStudyMaterials();
@@ -578,8 +620,16 @@ const AdminDashboard = () => {
       fetchOffers();
     } else if (activeTab === 'customize-course') {
       fetchCoursePage(selectedCourseName);
+    } else if (activeTab === 'alumni') {
+      fetchAlumni();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'alumni') {
+      fetchAlumni();
+    }
+  }, [alumniSearch, alumniClassFilter]);
 
   useEffect(() => {
     if (activeTab === 'customize-course') {
@@ -781,6 +831,20 @@ const AdminDashboard = () => {
     }
   };
 
+  const fetchAlumni = async () => {
+    try {
+      setLoading(true);
+      const data = await apiFetch(
+        `/api/students?status=Alumni&search=${alumniSearch}&classFilter=${alumniClassFilter}`
+      );
+      setAlumniStudents(data);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchTeachers = async () => {
     try {
       setLoading(true);
@@ -829,6 +893,18 @@ const AdminDashboard = () => {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchRevenueData = async () => {
+    try {
+      setLoadingRevenue(true);
+      const data = await apiFetch('/api/dashboard/revenue');
+      setRevenueData(data || { weekly: [], monthly: [], yearly: [] });
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setLoadingRevenue(false);
     }
   };
 
@@ -1589,6 +1665,44 @@ const AdminDashboard = () => {
     );
   };
 
+  const handleExitStudent = (student) => {
+    triggerDeleteConfirm(
+      'Graduate Student (Move to Alumni)',
+      `Are you sure you want to exit student "${student.name}" (ID: ${student.studentId})? This will move them to the Alumni section and revoke their active login access.`,
+      async () => {
+        try {
+          await apiFetch(`/api/students/${student._id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'Alumni' })
+          });
+          showToast('Student successfully moved to Alumni!', 'success');
+          fetchStudents();
+          fetchAlumni();
+          fetchStats();
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+      }
+    );
+  };
+
+  const handleRestoreStudent = async (student) => {
+    try {
+      await apiFetch(`/api/students/${student._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Active' })
+      });
+      showToast('Student successfully restored to Active status!', 'success');
+      fetchStudents();
+      fetchAlumni();
+      fetchStats();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  };
+
   const handleDeleteTeacher = (teacher) => {
     triggerDeleteConfirm(
       'Remove Teacher Record',
@@ -1909,8 +2023,10 @@ const AdminDashboard = () => {
   // Sidebar list
   const sidebarItems = [
     { id: 'dashboard', label: 'Dashboard', icon: ClipboardList },
+    { id: 'revenue', label: 'Revenue Report', icon: TrendingUp },
     { id: 'student', label: 'Student', icon: Users },
     { id: 'notes-students', label: 'Notes Students', icon: GraduationCap },
+    { id: 'alumni', label: 'Alumni', icon: GraduationCap },
     { id: 'teacher', label: 'Teacher', icon: UserCheck },
     { id: 'attendance', label: 'Attendance', icon: Calendar },
     { id: 'fees', label: 'Fee Management', icon: Coins },
@@ -1927,6 +2043,8 @@ const AdminDashboard = () => {
     { id: 'offers', label: 'Promo Offers', icon: Gift },
     { id: 'customize-course', label: 'Customize Course', icon: BookOpen }
   ];
+
+  const filteredStudentsList = students.filter(s => getStudentSession(s.createdAt) === studentSessionFilter);
 
   return (
     <div className="min-h-screen bg-bgLight flex flex-col font-sans">
@@ -2055,7 +2173,9 @@ const AdminDashboard = () => {
                   <div className="bg-emerald-50 p-4 rounded-xl text-emerald-600"><Coins className="w-8 h-8" /></div>
                   <div>
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Total Fees Billing</span>
-                    <span className="text-3xl font-bold font-stats text-emerald-600 mt-1 block">₹{stats.totalFees.toLocaleString()}</span>
+                    <span className="text-3xl font-bold font-stats text-emerald-600 mt-1 block">
+                      {renderMaskedAmount(stats.totalFees, 'overview-total-fees')}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2065,7 +2185,9 @@ const AdminDashboard = () => {
                   <div className="bg-emerald-500/10 p-4 rounded-xl text-emerald-600"><DollarSign className="w-8 h-8" /></div>
                   <div>
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Paid Fees Collection</span>
-                    <span className="text-3xl font-bold font-stats text-emerald-600 mt-1 block">₹{stats.paidFees.toLocaleString()}</span>
+                    <span className="text-3xl font-bold font-stats text-emerald-600 mt-1 block">
+                      {renderMaskedAmount(stats.paidFees, 'overview-paid-fees')}
+                    </span>
                   </div>
                 </div>
 
@@ -2073,7 +2195,9 @@ const AdminDashboard = () => {
                   <div className="bg-rose-50 p-4 rounded-xl text-danger"><TrendingDown className="w-8 h-8" /></div>
                   <div>
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Pending Fees Owed</span>
-                    <span className="text-3xl font-bold font-stats text-danger mt-1 block">₹{stats.pendingFees.toLocaleString()}</span>
+                    <span className="text-3xl font-bold font-stats text-danger mt-1 block">
+                      {renderMaskedAmount(stats.pendingFees, 'overview-pending-fees')}
+                    </span>
                   </div>
                 </div>
 
@@ -2081,7 +2205,9 @@ const AdminDashboard = () => {
                   <div className="bg-indigo-50 p-4 rounded-xl text-indigo-650"><TrendingUp className="w-8 h-8" /></div>
                   <div>
                     <span className="text-xs text-slate-400 font-bold block uppercase tracking-wider">Total Profit</span>
-                    <span className="text-3xl font-bold font-stats text-indigo-650 mt-1 block">₹{(stats.totalProfit || 0).toLocaleString()}</span>
+                    <span className="text-3xl font-bold font-stats text-indigo-650 mt-1 block">
+                      {renderMaskedAmount(stats.totalProfit, 'overview-total-profit')}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2108,6 +2234,169 @@ const AdminDashboard = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ==================== REVENUE REPORT PAGE ==================== */}
+          {activeTab === 'revenue' && (
+            <div className="space-y-8 text-left animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Financial Revenue Report</h2>
+                  <p className="text-xs text-slate-400">Detailed records of fee collections, teacher salaries, and business expenses.</p>
+                </div>
+                {/* View Toggles */}
+                <div className="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200/50 self-start sm:self-center shrink-0">
+                  {['weekly', 'monthly', 'yearly'].map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setRevenueSubTab(tab)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 capitalize cursor-pointer ${
+                        revenueSubTab === tab
+                          ? 'bg-white text-primary shadow-sm'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {tab} View
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {loadingRevenue ? (
+                <div className="flex flex-col items-center justify-center py-24 space-y-3 bg-white border border-slate-100 rounded-3xl shadow-sm">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <span className="text-xs font-bold text-slate-400">Loading financial statements...</span>
+                </div>
+              ) : (
+                <>
+                  {/* Aggregates Cards for the Selected Sub-Tab */}
+                  {(() => {
+                    const dataList = revenueData[revenueSubTab] || [];
+                    const totals = dataList.reduce(
+                      (acc, curr) => {
+                        acc.fees += curr.fees || 0;
+                        acc.salary += curr.salary || 0;
+                        acc.otherExpense += curr.otherExpense || 0;
+                        acc.netProfit += curr.netProfit || 0;
+                        return acc;
+                      },
+                      { fees: 0, salary: 0, otherExpense: 0, netProfit: 0 }
+                    );
+
+                    return (
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-6">
+                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4 text-left">
+                          <div className="bg-emerald-50 p-3 rounded-xl text-emerald-600">
+                            <Coins className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Fees Collected</span>
+                            <span className="text-xl font-bold font-stats text-emerald-600 mt-0.5 block">
+                              ₹{totals.fees.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4 text-left">
+                          <div className="bg-rose-50 p-3 rounded-xl text-rose-600">
+                            <UserCheck className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Teacher Salaries</span>
+                            <span className="text-xl font-bold font-stats text-rose-600 mt-0.5 block">
+                              ₹{totals.salary.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4 text-left">
+                          <div className="bg-amber-50 p-3 rounded-xl text-amber-600">
+                            <TrendingDown className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">Other Expenses</span>
+                            <span className="text-xl font-bold font-stats text-amber-600 mt-0.5 block">
+                              ₹{totals.otherExpense.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className={`p-5 rounded-2xl border shadow-premium hover:shadow-premiumHover hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-4 text-left ${
+                          totals.netProfit >= 0 
+                            ? 'bg-emerald-50/20 border-emerald-100 text-emerald-700' 
+                            : 'bg-rose-50/20 border-rose-100 text-rose-700'
+                        }`}>
+                          <div className={`p-3 rounded-xl ${totals.netProfit >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                            <TrendingUp className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] opacity-75 font-bold block uppercase tracking-wider">Net Profit/Loss</span>
+                            <span className="text-xl font-bold font-stats mt-0.5 block">
+                              ₹{totals.netProfit.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Detailed Table */}
+                  <div className="bg-white rounded-3xl border border-slate-100 shadow-premium overflow-hidden">
+                    <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        {revenueSubTab} ledger statements
+                      </h3>
+                      <span className="text-[10px] font-bold text-slate-400">
+                        Showing {(revenueData[revenueSubTab] || []).length} periods
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-400 font-bold text-[10px] uppercase border-b border-slate-100">
+                            <th className="px-6 py-4">Period / Range</th>
+                            <th className="px-6 py-4 text-right">Fees Collected</th>
+                            <th className="px-6 py-4 text-right">Salaries Paid</th>
+                            <th className="px-6 py-4 text-right">Other Expenses</th>
+                            <th className="px-6 py-4 text-right">Net Flow</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-600">
+                          {(revenueData[revenueSubTab] || []).length === 0 ? (
+                            <tr>
+                              <td colSpan="5" className="px-6 py-16 text-center text-slate-400 font-medium">
+                                No financial transactions recorded for this level of granularity.
+                              </td>
+                            </tr>
+                          ) : (
+                            (revenueData[revenueSubTab] || []).map((row, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-6 py-4 font-semibold text-slate-700">{row.label}</td>
+                                <td className="px-6 py-4 text-right text-emerald-600 font-bold font-stats">
+                                  ₹{(row.fees || 0).toLocaleString()}
+                                </td>
+                                <td className="px-6 py-4 text-right text-rose-600 font-stats">
+                                  ₹{(row.salary || 0).toLocaleString()}
+                                </td>
+                                <td className="px-6 py-4 text-right text-amber-600 font-stats">
+                                  ₹{(row.otherExpense || 0).toLocaleString()}
+                                </td>
+                                <td className={`px-6 py-4 text-right font-bold font-stats ${
+                                  row.netProfit >= 0 ? 'text-emerald-600' : 'text-danger'
+                                }`}>
+                                  {row.netProfit >= 0 ? '+' : '-'}₹{Math.abs(row.netProfit || 0).toLocaleString()}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -2140,17 +2429,34 @@ const AdminDashboard = () => {
                   />
                 </div>
                 
-                <div className="w-full sm:w-48 shrink-0">
-                  <select
-                    value={studentClassFilter}
-                    onChange={(e) => setStudentClassFilter(e.target.value)}
-                    className="w-full py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 outline-none focus:bg-white"
-                  >
-                    <option value="">All Classes</option>
-                    {classesOptions.map((c) => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
-                  </select>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto shrink-0">
+                  <div className="w-full sm:w-44">
+                    <select
+                      value={studentSessionFilter}
+                      onChange={(e) => setStudentSessionFilter(e.target.value)}
+                      className="w-full py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-650 outline-none focus:bg-white cursor-pointer"
+                    >
+                      {Array.from({ length: 11 }, (_, i) => {
+                        const startYear = 2025 + i;
+                        return `${startYear}-${String(startYear + 1).slice(-2)}`;
+                      }).map((s) => (
+                        <option key={s} value={s}>{s} Session</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="w-full sm:w-44 shrink-0">
+                    <select
+                      value={studentClassFilter}
+                      onChange={(e) => setStudentClassFilter(e.target.value)}
+                      className="w-full py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 outline-none focus:bg-white cursor-pointer"
+                    >
+                      <option value="">All Classes</option>
+                      {classesOptions.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -2160,7 +2466,7 @@ const AdminDashboard = () => {
                   <div className="flex justify-center items-center py-20">
                     <Loader2 className="w-8 h-8 text-primary animate-spin" />
                   </div>
-                ) : students.length === 0 ? (
+                ) : filteredStudentsList.length === 0 ? (
                   <div className="text-slate-400 py-16 text-center text-sm font-medium">No student records found.</div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2180,7 +2486,7 @@ const AdminDashboard = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
-                        {students.map((student) => {
+                        {filteredStudentsList.map((student) => {
                           const netFee = student.totalFees - student.discount;
                           const pendingFee = netFee - student.paidFees;
                           return (
@@ -2289,6 +2595,13 @@ const AdminDashboard = () => {
                                   title="Delete"
                                 >
                                   <Trash2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleExitStudent(student)}
+                                  className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-amber-50 hover:text-amber-600 transition-colors cursor-pointer"
+                                  title="Exit Student (Alumni)"
+                                >
+                                  <LogOut className="w-4 h-4" />
                                 </button>
                               </td>
                             </tr>
@@ -2475,6 +2788,98 @@ const AdminDashboard = () => {
                     </div>
                   );
                 })()}
+              </div>
+            </div>
+          )}
+
+          {/* ==================== ALUMNI PAGE ==================== */}
+          {activeTab === 'alumni' && (
+            <div className="space-y-6 text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-extrabold text-primary font-heading">Alumni Students</h2>
+                  <p className="text-xs text-slate-400">Manage students who have exited or completed their session.</p>
+                </div>
+              </div>
+
+              {/* Filters / Search */}
+              <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col sm:flex-row gap-4 items-center justify-between">
+                <div className="relative w-full sm:max-w-md">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={alumniSearch}
+                    onChange={(e) => setAlumniSearch(e.target.value)}
+                    placeholder="Search by student name, ID or father's name..."
+                    className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 rounded-lg border border-slate-200 outline-none focus:bg-white focus:ring-1 focus:ring-primary focus:border-primary transition-all text-slate-700"
+                  />
+                </div>
+
+                <div className="w-full sm:w-48 shrink-0">
+                  <select
+                    value={alumniClassFilter}
+                    onChange={(e) => setAlumniClassFilter(e.target.value)}
+                    className="w-full py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 outline-none focus:bg-white cursor-pointer"
+                  >
+                    <option value="">All Classes</option>
+                    {classesOptions.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Alumni Table */}
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-premium overflow-hidden">
+                {loading ? (
+                  <div className="flex justify-center items-center py-20">
+                    <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  </div>
+                ) : alumniStudents.length === 0 ? (
+                  <div className="text-slate-400 py-16 text-center text-sm font-medium">No alumni records found.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="bg-slate-50/70 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="px-6 py-4">ID</th>
+                          <th className="px-6 py-4">Student Name</th>
+                          <th className="px-6 py-4">Father Name</th>
+                          <th className="px-6 py-4">Class</th>
+                          <th className="px-6 py-4">Phone</th>
+                          <th className="px-6 py-4 text-center">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
+                        {alumniStudents.map((student) => (
+                          <tr key={student._id} className="hover:bg-slate-55/30 transition-colors">
+                            <td className="px-6 py-4 font-bold text-primary font-stats">{student.studentId}</td>
+                            <td className="px-6 py-4 font-semibold text-slate-800">{student.name}</td>
+                            <td className="px-6 py-4">{student.fatherName}</td>
+                            <td className="px-6 py-4">{student.class} ({student.medium})</td>
+                            <td className="px-6 py-4 font-stats">{student.phone}</td>
+                            <td className="px-6 py-4 flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleRestoreStudent(student)}
+                                className="px-3 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/50 rounded-lg text-[10px] font-bold transition-colors cursor-pointer flex items-center gap-1"
+                                title="Restore to Active Student List"
+                              >
+                                <Plus className="w-3 h-3" /> Restore
+                              </button>
+                              <button
+                                onClick={() => handleDeleteStudent(student)}
+                                className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-rose-50 hover:text-danger transition-colors cursor-pointer"
+                                title="Delete Permanently"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}

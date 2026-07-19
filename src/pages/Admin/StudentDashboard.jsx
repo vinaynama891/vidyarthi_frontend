@@ -967,7 +967,7 @@ Please verify the transaction and update my receipt. Thank you!`;
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   {studyMaterials.map((mat) => {
                     const materialFileUrl = mat.fileUrl.startsWith('http') ? mat.fileUrl : `${API_BASE_URL}${mat.fileUrl}`;
-                    const isLocked = pendingFeeBalance > 0;
+                    const isLocked = !mat.isUnlocked;
 
                     return (
                       <div key={mat._id} className={`border p-5 rounded-2xl flex flex-col justify-between transition-all duration-200 text-left relative ${
@@ -997,20 +997,20 @@ Please verify the transaction and update my receipt. Thank you!`;
                         <button
                           onClick={() => {
                             if (isLocked) {
-                              showToast(`Access Denied: Please clear your pending fee balance of ₹${pendingFeeBalance.toLocaleString()} to unlock study materials.`, 'error');
+                              showToast('Access Denied: This study material is locked. Please contact administrator.', 'error');
                             } else {
                               setSelectedNote(mat);
                             }
                           }}
                           className={`mt-4 flex items-center justify-center gap-1.5 w-full py-2 text-[10px] font-bold rounded-xl shadow-sm transition-colors cursor-pointer text-center font-sans ${
                             isLocked 
-                              ? 'bg-slate-300 hover:bg-slate-400 text-slate-600' 
+                              ? 'bg-slate-300 hover:bg-slate-400 text-slate-650' 
                               : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                           }`}
                         >
                           {isLocked ? (
                             <>
-                              <Lock className="w-3.5 h-3.5" /> Locked (Fee Pending)
+                              <Lock className="w-3.5 h-3.5" /> Locked
                             </>
                           ) : (
                             <>
