@@ -1,8 +1,132 @@
-import React, { useEffect, useState } from 'react';
-import { X, Lock, FileText, Image, ShieldAlert } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { X, Lock, FileText, Image } from 'lucide-react';
+
+const PDFPageKeyed = ({ pdf, pageNumber }) => {
+  const canvasRef = useRef(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    pdf.getPage(pageNumber).then((page) => {
+      if (!active) return;
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const context = canvas.getContext('2d');
+      // Scale is set to 1.5 for crisp rendering on mobile screens
+      const viewport = page.getViewport({ scale: 1.5 });
+
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport,
+      };
+      page.render(renderContext).promise.then(() => {
+        if (active) setLoading(false);
+      });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [pdf, pageNumber]);
+
+  return (
+    <div className="bg-white p-1 rounded-xl shadow-md max-w-full relative flex items-center justify-center">
+      {loading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900/5 rounded-lg">
+          <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      )}
+      <canvas ref={canvasRef} className="max-w-full h-auto rounded-lg shadow-sm" />
+    </div>
+  );
+};
+
+const CanvasPDFViewer = ({ fileUrl }) => {
+  const [pdf, setPdf] = useState(null);
+  const [numPages, setNumPages] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    const initPdfJs = (pdfjsLib) => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+      pdfjsLib.getDocument(fileUrl).promise.then(
+        (loadedPdf) => {
+          if (!active) return;
+          setPdf(loadedPdf);
+          setNumPages(loadedPdf.numPages);
+          setLoading(false);
+        },
+        (err) => {
+          if (!active) return;
+          console.error('Error loading PDF:', err);
+          setError('Failed to load PDF. Please try again.');
+          setLoading(false);
+        }
+      );
+    };
+
+    if (window.pdfjsLib) {
+      initPdfJs(window.pdfjsLib);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+    script.onload = () => {
+      if (window.pdfjsLib) {
+        initPdfJs(window.pdfjsLib);
+      }
+    };
+    script.onerror = () => {
+      if (active) {
+        setError('Failed to load PDF viewer scripts.');
+        setLoading(false);
+      }
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      active = false;
+    };
+  }, [fileUrl]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-slate-400 gap-3">
+        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-xs font-semibold">Opening document inside website...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-rose-450 text-xs font-semibold gap-2">
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="w-full h-full overflow-y-auto bg-slate-950 p-2 sm:p-4 space-y-4 flex flex-col items-center select-none pointer-events-auto">
+      {pdf && Array.from({ length: numPages }, (_, i) => i + 1).map((pageNumber) => (
+        <PDFPageKeyed key={pageNumber} pdf={pdf} pageNumber={pageNumber} />
+      ))}
+    </div>
+  );
+};
 
 const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
-
   useEffect(() => {
     if (!isOpen) return;
 
@@ -103,7 +227,7 @@ const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
         {/* Modal Body / Viewer Viewport */}
         <div className="flex-grow relative flex items-center justify-center bg-slate-950 overflow-hidden z-20">
           
-          {/* Watermark Overlay (Pointer events none allows scroll/clicks to pass through) */}
+          {/* Watermark Overlay */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-16 items-center justify-items-center p-8 z-20">
             {watermarks}
           </div>
@@ -111,11 +235,7 @@ const SecureViewerModal = ({ isOpen, onClose, fileUrl, title, student }) => {
           {/* Content Render */}
           <div className="w-full h-full flex items-center justify-center p-1 select-none pointer-events-auto">
             {isPdf ? (
-              <iframe
-                src={`${fileUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                className="w-full h-full border-none select-none"
-                title={title}
-              />
+              <CanvasPDFViewer fileUrl={fileUrl} />
             ) : (
               <div 
                 className="w-full h-full flex items-center justify-center p-4 bg-slate-900/40"
