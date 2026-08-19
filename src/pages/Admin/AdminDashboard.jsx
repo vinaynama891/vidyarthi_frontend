@@ -659,6 +659,9 @@ const AdminDashboard = () => {
       cleaned = '91' + cleaned;
     }
 
+    // Open blank tab immediately to bypass browser popup blocker
+    const win = window.open('about:blank', '_blank');
+
     const totalFees = Number(student.totalFees) || 0;
     const paidFees = Number(student.paidFees) || 0;
     const discount = Number(student.discount) || 0;
@@ -708,7 +711,12 @@ const AdminDashboard = () => {
 For any queries, please contact Vidyarthi Classes Kota.
 Thank you!`;
 
-    window.open(`https://api.whatsapp.com/send?phone=${cleaned}&text=${encodeURIComponent(message)}`, '_blank');
+    const targetUrl = `https://api.whatsapp.com/send?phone=${cleaned}&text=${encodeURIComponent(message)}`;
+    if (win) {
+      win.location.href = targetUrl;
+    } else {
+      window.open(targetUrl, '_blank');
+    }
   };
 
   // --- STUDENT FORM STATE ---
@@ -2744,13 +2752,7 @@ Thank you!`;
                                   <span>{student.phone}</span>
                                   {student.phone && (
                                     <button
-                                      onClick={() => {
-                                        let cleaned = student.phone.replace(/\D/g, '');
-                                        if (cleaned.length === 10) {
-                                          cleaned = '91' + cleaned;
-                                        }
-                                        window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
-                                      }}
+                                      onClick={() => handleSendStudentWhatsAppSummary(student)}
                                       className="text-emerald-500 hover:text-emerald-600 transition-colors cursor-pointer inline-flex items-center"
                                       title="Chat on WhatsApp"
                                     >
@@ -2800,13 +2802,7 @@ Thank you!`;
                                 </button>
                                 {student.phone && (
                                   <button
-                                    onClick={() => {
-                                      let cleaned = student.phone.replace(/\D/g, '');
-                                      if (cleaned.length === 10) {
-                                        cleaned = '91' + cleaned;
-                                      }
-                                      window.open(`https://api.whatsapp.com/send?phone=${cleaned}`, '_blank');
-                                    }}
+                                    onClick={() => handleSendStudentWhatsAppSummary(student)}
                                     className="p-2 border border-slate-100 rounded-lg text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 transition-colors cursor-pointer"
                                     title="Chat on WhatsApp"
                                   >
