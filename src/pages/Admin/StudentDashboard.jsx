@@ -445,6 +445,7 @@ Please verify the transaction and update my receipt. Thank you!`;
                     <tr><td class="font-bold text-slate-500 py-1">Course</td><td>: ${student.class}</td></tr>
                     <tr><td class="font-bold text-slate-500 py-1">Class/Batch</td><td>: ${student.class}</td></tr>
                     <tr><td class="font-bold text-slate-500 py-1">Phone No.</td><td>: ${student.phone}</td></tr>
+                    <tr><td class="font-bold text-slate-500 py-1">Joining Date</td><td>: ${student.joiningDate ? new Date(student.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A')}</td></tr>
                     <tr><td class="font-bold text-slate-500 py-1">Address</td><td>: ${student.address || 'N/A'}</td></tr>
                   </tbody>
                 </table>
@@ -1605,6 +1606,7 @@ Please verify the transaction and update my receipt. Thank you!`;
                           <tr><td className="font-bold text-slate-500 py-0.5">Course</td><td>: {student.class}</td></tr>
                           <tr><td className="font-bold text-slate-500 py-0.5">Class/Batch</td><td>: {student.class}</td></tr>
                           <tr><td className="font-bold text-slate-500 py-0.5">Phone No.</td><td>: {student.phone}</td></tr>
+                          <tr><td className="font-bold text-slate-500 py-0.5">Joining Date</td><td>: {student.joiningDate ? new Date(student.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A')}</td></tr>
                           <tr><td className="font-bold text-slate-500 py-0.5">Address</td><td>: {student.address || 'N/A'}</td></tr>
                         </tbody>
                       </table>

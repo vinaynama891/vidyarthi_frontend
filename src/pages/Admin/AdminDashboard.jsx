@@ -116,6 +116,7 @@ const AdminDashboard = () => {
   const [selectedClassAttendance, setSelectedClassAttendance] = useState(null);
   const [attendanceDate, setAttendanceDate] = useState(getLocalDateStr());
   const [attendanceRegistry, setAttendanceRegistry] = useState({});
+  const [attendanceStatusFilter, setAttendanceStatusFilter] = useState('all');
   const [feeRecords, setFeeRecords] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [revenueData, setRevenueData] = useState({ weekly: [], monthly: [], yearly: [] });
@@ -348,6 +349,7 @@ const AdminDashboard = () => {
                     <tr><td class="font-bold text-slate-500 py-1">Course</td><td>: ${student.class}</td></tr>
                     <tr><td class="font-bold text-slate-500 py-1">Class/Batch</td><td>: ${student.class}</td></tr>
                     <tr><td class="font-bold text-slate-500 py-1">Phone No.</td><td>: ${student.phone}</td></tr>
+                    <tr><td class="font-bold text-slate-500 py-1">Joining Date</td><td>: ${student.joiningDate ? new Date(student.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A')}</td></tr>
                     <tr><td class="font-bold text-slate-500 py-1">Address</td><td>: ${student.address || 'N/A'}</td></tr>
                   </tbody>
                 </table>
@@ -508,6 +510,8 @@ const AdminDashboard = () => {
   const [editingFeeClass, setEditingFeeClass] = useState(null);
   const [editingFeeEnglish, setEditingFeeEnglish] = useState('');
   const [editingFeeHindi, setEditingFeeHindi] = useState('');
+  const [editingFeeEnglishMonthly, setEditingFeeEnglishMonthly] = useState('');
+  const [editingFeeHindiMonthly, setEditingFeeHindiMonthly] = useState('');
 
   // Delete Confirmation Modals state
   const [deleteModal, setDeleteModal] = useState({
@@ -735,7 +739,8 @@ Thank you!`;
     address: '',
     studentType: 'Regular',
     unlockedNotes: [],
-    installments: []
+    installments: [],
+    joiningDate: getLocalDateStr()
   });
 
   // --- TEACHER FORM STATE ---
@@ -876,11 +881,15 @@ Thank you!`;
 
   const fetchAttendance = async () => {
     try {
-      const logs = await apiFetch(`/api/attendance?date=${attendanceDate}&userType=${attendanceSubTab}`);
+      const targetUserType = attendanceSubTab === 'students' ? 'student' : 'teacher';
+      const logs = await apiFetch(`/api/attendance?date=${attendanceDate}&userType=${targetUserType}`);
       const newRegistry = { ...attendanceRegistry };
-      logs.forEach(log => {
-        const id = attendanceSubTab === 'students' ? log.studentId : log.teacherId;
-        newRegistry[`${attendanceDate}_${id}`] = log.status;
+      (logs || []).forEach(log => {
+        const rawId = attendanceSubTab === 'students' ? log.studentId : log.teacherId;
+        const id = typeof rawId === 'object' && rawId !== null ? (rawId.studentId || rawId._id || String(rawId)) : String(rawId);
+        if (id) {
+          newRegistry[`${attendanceDate}_${id}`] = log.status;
+        }
       });
       setAttendanceRegistry(newRegistry);
     } catch (err) {
@@ -945,14 +954,59 @@ Thank you!`;
     return 'unmarked';
   };
 
+  const handleMarkAllStudentAttendance = (status) => {
+    if (!selectedClassAttendance) return;
+    const classStudents = students.filter(s => s.class === selectedClassAttendance);
+    setAttendanceRegistry(prev => {
+      const updated = { ...prev };
+      classStudents.forEach(s => {
+        if (status) {
+          updated[`${attendanceDate}_${s.studentId}`] = status;
+        } else {
+          delete updated[`${attendanceDate}_${s.studentId}`];
+        }
+      });
+      return updated;
+    });
+  };
+
+  const handleMarkAllTeacherAttendance = (status) => {
+    setAttendanceRegistry(prev => {
+      const updated = { ...prev };
+      teachers.forEach(t => {
+        let isBeforeJoining = false;
+        if (t.joiningDate) {
+          const jd = new Date(t.joiningDate);
+          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+          isBeforeJoining = attendanceDate < jdStr;
+        }
+        if (!isBeforeJoining) {
+          if (status) {
+            updated[`${attendanceDate}_${t._id}`] = status;
+          } else {
+            delete updated[`${attendanceDate}_${t._id}`];
+          }
+        }
+      });
+      return updated;
+    });
+  };
+
   const handleSaveStudentAttendance = async () => {
     try {
       const classStudents = students.filter(s => s.class === selectedClassAttendance);
+      
+      const unselected = classStudents.filter(s => !attendanceRegistry[`${attendanceDate}_${s.studentId}`]);
+      if (unselected.length > 0) {
+        showToast(`Please select attendance status for all ${classStudents.length} students (or click 'Mark All Present').`, 'warning');
+        return;
+      }
+
       const records = classStudents.map(s => {
         const key = `${attendanceDate}_${s.studentId}`;
         return {
           studentId: s.studentId,
-          status: attendanceRegistry[key] || 'present'
+          status: attendanceRegistry[key]
         };
       });
 
@@ -965,8 +1019,8 @@ Thank you!`;
         })
       });
 
-      showToast(`Attendance for ${selectedClassAttendance} submitted successfully!`, 'success');
-      setSelectedClassAttendance(null);
+      showToast(`Attendance for ${selectedClassAttendance} (${attendanceDate}) submitted successfully!`, 'success');
+      fetchAttendance();
     } catch (err) {
       showToast(err.message || 'Failed to submit student attendance', 'error');
     }
@@ -974,6 +1028,22 @@ Thank you!`;
 
   const handleSaveTeacherAttendance = async () => {
     try {
+      const unselected = teachers.filter(t => {
+        let isBeforeJoining = false;
+        if (t.joiningDate) {
+          const jd = new Date(t.joiningDate);
+          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+          isBeforeJoining = attendanceDate < jdStr;
+        }
+        if (isBeforeJoining) return false;
+        return !attendanceRegistry[`${attendanceDate}_${t._id}`];
+      });
+
+      if (unselected.length > 0) {
+        showToast(`Please select attendance status for all active teachers (or click 'Mark All Present').`, 'warning');
+        return;
+      }
+
       const records = teachers.map(t => {
         const key = `${attendanceDate}_${t._id}`;
         let isBeforeJoining = false;
@@ -984,7 +1054,7 @@ Thank you!`;
         }
         return {
           teacherId: t._id,
-          status: isBeforeJoining ? 'absent' : (attendanceRegistry[key] || 'present')
+          status: isBeforeJoining ? 'absent' : attendanceRegistry[key]
         };
       });
 
@@ -997,7 +1067,8 @@ Thank you!`;
         })
       });
 
-      showToast('Teacher attendance roster submitted successfully!', 'success');
+      showToast(`Teacher attendance roster (${attendanceDate}) submitted successfully!`, 'success');
+      fetchAttendance();
     } catch (err) {
       showToast(err.message || 'Failed to submit teacher attendance', 'error');
     }
@@ -1530,16 +1601,46 @@ Thank you!`;
   };
 
   // --- Auto-fill fee logic for Student Registration ---
+  const handleFeeOptionSelect = async (optionKey) => {
+    const medium = optionKey.startsWith('Hindi') ? 'Hindi' : 'English';
+    setStudentForm((prev) => ({ ...prev, medium, feeOption: optionKey }));
+
+    try {
+      const structure = await apiFetch(`/api/fees/structure/${studentForm.class}`);
+      if (structure) {
+        let fee = 0;
+        if (optionKey === 'English(Y)' || optionKey === 'English') {
+          fee = structure.englishMediumFee || structure.fee || 0;
+        } else if (optionKey === 'English(M)') {
+          fee = structure.englishMediumMonthlyFee || 0;
+        } else if (optionKey === 'Hindi(Y)' || optionKey === 'Hindi') {
+          fee = structure.hindiMediumFee || 0;
+        } else if (optionKey === 'Hindi(M)') {
+          fee = structure.hindiMediumMonthlyFee || 0;
+        }
+        setStudentForm((prev) => ({ ...prev, totalFees: fee }));
+      }
+    } catch (err) {
+      console.warn('Could not auto-fill fee option:', err.message);
+    }
+  };
+
   const handleStudentClassChange = async (className, mediumOverride) => {
     try {
-      setStudentForm((prev) => ({ ...prev, class: className }));
+      const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(className);
+      const defaultOption = isClass1to7 ? 'English(Y)' : (mediumOverride ?? studentForm.medium ?? 'English');
+      const medium = defaultOption.startsWith('Hindi') ? 'Hindi' : 'English';
+
+      setStudentForm((prev) => ({ ...prev, class: className, medium, feeOption: defaultOption }));
+
       const structure = await apiFetch(`/api/fees/structure/${className}`);
       if (structure) {
-        // Determine which fee to use based on medium
-        const currentMedium = mediumOverride ?? studentForm.medium ?? 'English';
-        const fee = currentMedium === 'Hindi'
-          ? (structure.hindiMediumFee || 0)
-          : (structure.englishMediumFee || structure.fee || 0);
+        let fee = 0;
+        if (defaultOption === 'English(Y)' || defaultOption === 'English') fee = structure.englishMediumFee || structure.fee || 0;
+        else if (defaultOption === 'English(M)') fee = structure.englishMediumMonthlyFee || 0;
+        else if (defaultOption === 'Hindi(Y)' || defaultOption === 'Hindi') fee = structure.hindiMediumFee || 0;
+        else if (defaultOption === 'Hindi(M)') fee = structure.hindiMediumMonthlyFee || 0;
+
         setStudentForm((prev) => ({ ...prev, totalFees: fee }));
       }
     } catch (err) {
@@ -1550,31 +1651,26 @@ Thank you!`;
 
   // Auto-fill fee when medium changes (in student form)
   const handleStudentMediumChange = async (medium) => {
-    setStudentForm((prev) => ({ ...prev, medium }));
-    try {
-      const structure = await apiFetch(`/api/fees/structure/${studentForm.class}`);
-      if (structure) {
-        const fee = medium === 'Hindi'
-          ? (structure.hindiMediumFee || 0)
-          : (structure.englishMediumFee || structure.fee || 0);
-        setStudentForm((prev) => ({ ...prev, totalFees: fee }));
-      }
-    } catch (err) {
-      console.warn('Could not auto-fill medium fee:', err.message);
-    }
+    handleFeeOptionSelect(medium);
   };
 
   // Triggered when editing a student and changing class
   const handleEditStudentClassChange = async (className, currentFormSetter, mediumOverride) => {
     try {
+      const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(className);
       const structure = await apiFetch(`/api/fees/structure/${className}`);
       if (structure) {
         currentFormSetter((prev) => {
-          const medium = mediumOverride ?? prev.medium ?? 'English';
-          const fee = medium === 'Hindi'
-            ? (structure.hindiMediumFee || 0)
-            : (structure.englishMediumFee || structure.fee || 0);
-          return { ...prev, class: className, totalFees: fee };
+          const defaultOption = isClass1to7 ? (prev.feeOption || 'English(Y)') : (mediumOverride ?? prev.medium ?? 'English');
+          const medium = defaultOption.startsWith('Hindi') ? 'Hindi' : 'English';
+
+          let fee = 0;
+          if (defaultOption === 'English(Y)' || defaultOption === 'English') fee = structure.englishMediumFee || structure.fee || 0;
+          else if (defaultOption === 'English(M)') fee = structure.englishMediumMonthlyFee || 0;
+          else if (defaultOption === 'Hindi(Y)' || defaultOption === 'Hindi') fee = structure.hindiMediumFee || 0;
+          else if (defaultOption === 'Hindi(M)') fee = structure.hindiMediumMonthlyFee || 0;
+
+          return { ...prev, class: className, medium, feeOption: defaultOption, totalFees: fee };
         });
       }
     } catch (err) {
@@ -1712,12 +1808,14 @@ Thank you!`;
   // Edit class base fee
   const handleSaveClassFee = async (className) => {
     try {
-      if (!editingFeeEnglish && !editingFeeHindi) return;
+      if (!editingFeeEnglish && !editingFeeHindi && !editingFeeEnglishMonthly && !editingFeeHindiMonthly) return;
       await apiFetch(`/api/fees/structure/${className}`, {
         method: 'PUT',
         body: JSON.stringify({
           englishMediumFee: parseFloat(editingFeeEnglish) || 0,
-          hindiMediumFee: parseFloat(editingFeeHindi) || 0
+          hindiMediumFee: parseFloat(editingFeeHindi) || 0,
+          englishMediumMonthlyFee: parseFloat(editingFeeEnglishMonthly) || 0,
+          hindiMediumMonthlyFee: parseFloat(editingFeeHindiMonthly) || 0
         })
       });
       showToast(`Fee for ${className} updated successfully`, 'success');
@@ -1743,6 +1841,62 @@ Thank you!`;
       fetchExpenses();
     } catch (err) {
       showToast(err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-log Teacher Salary payment to Expenses
+  const handleConfirmTeacherSalaryPayment = async () => {
+    if (!selectedPaySalaryTeacher || paidSalaryAmount === '' || parseFloat(paidSalaryAmount) <= 0) return;
+
+    try {
+      setLoading(true);
+      const paidAmount = parseFloat(paidSalaryAmount);
+      const teacherName = selectedPaySalaryTeacher.name;
+      const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][parseInt(salaryMonth) - 1];
+
+      // Automatically create Expense entry under Salary category
+      await apiFetch('/api/expenses', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: `Teacher Salary - ${teacherName}`,
+          category: 'Salary',
+          amount: paidAmount,
+          date: getLocalDateStr(),
+          description: `Teacher Salary for ${teacherName} (${monthName} ${salaryYear})`
+        })
+      });
+
+      showToast(`Salary ₹${paidAmount.toLocaleString()} paid to ${teacherName} & added to Expenses!`, 'success');
+
+      // Refresh expenses list
+      fetchExpenses();
+
+      // Open WhatsApp notification
+      const totalSalary = selectedPaySalaryTeacher.salaryEarned || 0;
+      const remainingAmount = totalSalary - paidAmount;
+      const message = `*Salary Processed - Vidyarthi Classes*\n\n` +
+        `Hello *${teacherName}*,\n` +
+        `Your salary details for *${monthName} ${salaryYear}* have been processed.\n\n` +
+        `• Total Salary (कुल सैलरी): ₹${totalSalary.toLocaleString()}\n` +
+        `• Amount Paid (भुगतान राशि): ₹${paidAmount.toLocaleString()}\n` +
+        `• Remaining Balance (शेष राशि): ₹${remainingAmount.toLocaleString()}\n\n` +
+        `Thank you!`;
+
+      let cleaned = (selectedPaySalaryTeacher.phone || '').replace(/\D/g, '');
+      if (cleaned.length === 10) {
+        cleaned = '91' + cleaned;
+      }
+      if (cleaned) {
+        window.open(`https://api.whatsapp.com/send?phone=${cleaned}&text=${encodeURIComponent(message)}`, '_blank');
+      }
+
+      setIsPaySalaryModalOpen(false);
+      setSelectedPaySalaryTeacher(null);
+      setPaidSalaryAmount('');
+    } catch (err) {
+      showToast(err.message || 'Error recording salary expense', 'error');
     } finally {
       setLoading(false);
     }
@@ -2189,7 +2343,8 @@ Thank you!`;
       address: student.address || '',
       studentType: student.studentType || 'Regular',
       unlockedNotes: (student.unlockedNotes || []).map(id => id._id || id || id.toString()),
-      installments: student.installments || []
+      installments: student.installments || [],
+      joiningDate: student.joiningDate ? new Date(student.joiningDate).toISOString().split('T')[0] : (student.createdAt ? new Date(student.createdAt).toISOString().split('T')[0] : getLocalDateStr())
     });
     setIsStudentModalOpen(true);
   };
@@ -2719,6 +2874,7 @@ Thank you!`;
                           <th className="px-6 py-4">Father Name</th>
                           <th className="px-6 py-4">Class</th>
                           <th className="px-6 py-4">Phone</th>
+                          <th className="px-6 py-4">Joining Date</th>
                           <th className="px-6 py-4">Total Fee</th>
                           <th className="px-6 py-4">Paid Fee</th>
                           <th className="px-6 py-4">Pending Fee</th>
@@ -2762,6 +2918,9 @@ Thank you!`;
                                     </button>
                                   )}
                                 </div>
+                              </td>
+                              <td className="px-6 py-4 font-medium text-slate-500 whitespace-nowrap">
+                                {student.joiningDate ? new Date(student.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-')}
                               </td>
                               <td className="px-6 py-4 font-stats">
                                 {student.studentType === 'NotesOnly' ? '-' : `₹${student.totalFees.toLocaleString()}`}
@@ -3355,46 +3514,91 @@ Thank you!`;
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
-                        {feeStructures.map((structure) => (
+                        {feeStructures.map((structure) => {
+                          const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(structure.class);
+
+                          return (
                           <tr key={structure._id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-6 py-4 font-bold text-slate-800">{structure.class}</td>
 
                             {/* English Medium Fee */}
                             <td className="px-6 py-4">
                               {editingFeeClass === structure.class ? (
-                                <div className="flex items-center gap-1.5 max-w-[140px]">
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                                  <span className="text-slate-400">₹</span>
-                                  <input
-                                    type="number"
-                                    value={editingFeeEnglish}
-                                    onChange={(e) => setEditingFeeEnglish(e.target.value)}
-                                    className="w-full border border-emerald-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-emerald-400"
-                                    placeholder="English fee"
-                                    autoFocus
-                                  />
+                                <div className="space-y-1.5 max-w-[150px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                                    <span className="text-slate-400">₹</span>
+                                    <input
+                                      type="number"
+                                      value={editingFeeEnglish}
+                                      onChange={(e) => setEditingFeeEnglish(e.target.value)}
+                                      className="w-full border border-emerald-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-emerald-400"
+                                      placeholder="Total fee"
+                                      autoFocus
+                                    />
+                                  </div>
+                                  {isClass1to7 && (
+                                    <div className="flex items-center gap-1 text-[10px]">
+                                      <span className="text-slate-400 shrink-0 font-medium">Monthly: ₹</span>
+                                      <input
+                                        type="number"
+                                        value={editingFeeEnglishMonthly}
+                                        onChange={(e) => setEditingFeeEnglishMonthly(e.target.value)}
+                                        className="w-full border border-emerald-200 rounded px-1.5 py-0.5 outline-none text-[10px] focus:ring-1 focus:ring-emerald-400"
+                                        placeholder="Monthly fee"
+                                      />
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
-                                <span className="font-stats text-emerald-700 font-bold">₹{(structure.englishMediumFee || 0).toLocaleString()}</span>
+                                <div>
+                                  <span className="font-stats text-emerald-700 font-bold">₹{(structure.englishMediumFee || 0).toLocaleString()}</span>
+                                  {isClass1to7 && (
+                                    <div className="text-[10px] text-emerald-600 font-bold mt-0.5 font-stats">
+                                      Monthly: ₹{(structure.englishMediumMonthlyFee || 0).toLocaleString()}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </td>
 
                             {/* Hindi Medium Fee */}
                             <td className="px-6 py-4">
                               {editingFeeClass === structure.class ? (
-                                <div className="flex items-center gap-1.5 max-w-[140px]">
-                                  <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
-                                  <span className="text-slate-400">₹</span>
-                                  <input
-                                    type="number"
-                                    value={editingFeeHindi}
-                                    onChange={(e) => setEditingFeeHindi(e.target.value)}
-                                    className="w-full border border-indigo-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-indigo-400"
-                                    placeholder="Hindi fee"
-                                  />
+                                <div className="space-y-1.5 max-w-[150px]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
+                                    <span className="text-slate-400">₹</span>
+                                    <input
+                                      type="number"
+                                      value={editingFeeHindi}
+                                      onChange={(e) => setEditingFeeHindi(e.target.value)}
+                                      className="w-full border border-indigo-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-indigo-400"
+                                      placeholder="Total fee"
+                                    />
+                                  </div>
+                                  {isClass1to7 && (
+                                    <div className="flex items-center gap-1 text-[10px]">
+                                      <span className="text-slate-400 shrink-0 font-medium">Monthly: ₹</span>
+                                      <input
+                                        type="number"
+                                        value={editingFeeHindiMonthly}
+                                        onChange={(e) => setEditingFeeHindiMonthly(e.target.value)}
+                                        className="w-full border border-indigo-200 rounded px-1.5 py-0.5 outline-none text-[10px] focus:ring-1 focus:ring-indigo-400"
+                                        placeholder="Monthly fee"
+                                      />
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
-                                <span className="font-stats text-indigo-700 font-bold">₹{(structure.hindiMediumFee || 0).toLocaleString()}</span>
+                                <div>
+                                  <span className="font-stats text-indigo-700 font-bold">₹{(structure.hindiMediumFee || 0).toLocaleString()}</span>
+                                  {isClass1to7 && (
+                                    <div className="text-[10px] text-indigo-600 font-bold mt-0.5 font-stats">
+                                      Monthly: ₹{(structure.hindiMediumMonthlyFee || 0).toLocaleString()}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </td>
 
@@ -3423,6 +3627,8 @@ Thank you!`;
                                     setEditingFeeClass(structure.class);
                                     setEditingFeeEnglish((structure.englishMediumFee || 0).toString());
                                     setEditingFeeHindi((structure.hindiMediumFee || 0).toString());
+                                    setEditingFeeEnglishMonthly((structure.englishMediumMonthlyFee || 0).toString());
+                                    setEditingFeeHindiMonthly((structure.hindiMediumMonthlyFee || 0).toString());
                                   }}
                                   className="px-3.5 py-1.5 border border-slate-200 hover:border-primary/30 rounded-lg text-slate-600 hover:text-primary transition-all text-[11px] font-semibold cursor-pointer"
                                 >
@@ -3431,7 +3637,8 @@ Thank you!`;
                               )}
                             </td>
                           </tr>
-                        ))}
+                        );
+                      })}
                       </tbody>
                     </table>
               </div>
@@ -4005,23 +4212,69 @@ Thank you!`;
           {/* ==================== 9. ATTENDANCE PAGE (STUDENTS & TEACHERS) ==================== */}
           {activeTab === 'attendance' && (
             <div className="space-y-6 text-left animate-fadeIn">
-              {/* Heading */}
+              {/* Heading & Summary Bar */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
                 <div className="text-left space-y-1">
                   <h2 className="text-2xl font-extrabold text-primary font-heading font-sans">Attendance Register</h2>
                   <p className="text-xs text-slate-400">Track and manage daily attendance logs for students and teachers.</p>
                 </div>
                 
-                {/* Date Picker */}
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date:</label>
-                  <input
-                    type="date"
-                    value={attendanceDate}
-                    max={getLocalDateStr()}
-                    onChange={(e) => setAttendanceDate(e.target.value)}
-                    className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary font-semibold"
-                  />
+                {/* Date Picker & Live Summary */}
+                <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+                  {(() => {
+                    let p = 0, a = 0, h = 0, u = 0;
+                    if (attendanceSubTab === 'students') {
+                      students.forEach(s => {
+                        let isBeforeJoining = false;
+                        if (s.joiningDate) {
+                          const jd = new Date(s.joiningDate);
+                          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                          isBeforeJoining = attendanceDate < jdStr;
+                        }
+                        if (isBeforeJoining) return;
+                        const st = attendanceRegistry[`${attendanceDate}_${s.studentId}`];
+                        if (st === 'present') p++;
+                        else if (st === 'absent') a++;
+                        else if (st === 'holiday') h++;
+                        else u++;
+                      });
+                    } else {
+                      teachers.forEach(t => {
+                        let isBeforeJoining = false;
+                        if (t.joiningDate) {
+                          const jd = new Date(t.joiningDate);
+                          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                          isBeforeJoining = attendanceDate < jdStr;
+                        }
+                        if (isBeforeJoining) return;
+                        const st = attendanceRegistry[`${attendanceDate}_${t._id}`];
+                        if (st === 'present') p++;
+                        else if (st === 'absent') a++;
+                        else if (st === 'holiday') h++;
+                        else u++;
+                      });
+                    }
+
+                    return (
+                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs text-xs font-bold">
+                        <span className="text-emerald-700 bg-emerald-50 border border-emerald-150 px-2 py-0.5 rounded-lg font-stats">✓ {p} Present</span>
+                        <span className="text-rose-700 bg-rose-50 border border-rose-150 px-2 py-0.5 rounded-lg font-stats">✗ {a} Absent</span>
+                        {h > 0 && <span className="text-amber-700 bg-amber-50 border border-amber-150 px-2 py-0.5 rounded-lg font-stats">🏖 {h} Holiday</span>}
+                        {u > 0 && <span className="text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg font-stats">⏳ {u} Pending</span>}
+                      </div>
+                    );
+                  })()}
+
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date:</label>
+                    <input
+                      type="date"
+                      value={attendanceDate}
+                      max={getLocalDateStr()}
+                      onChange={(e) => setAttendanceDate(e.target.value)}
+                      className="py-1.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:bg-white focus:border-primary font-semibold cursor-pointer"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -4031,6 +4284,7 @@ Thank you!`;
                   onClick={() => {
                     setAttendanceSubTab('students');
                     setSelectedClassAttendance(null);
+                    setAttendanceStatusFilter('all');
                   }}
                   className={`py-3 px-6 text-xs font-black uppercase tracking-wider border-b-2 transition-all duration-200 cursor-pointer ${
                     attendanceSubTab === 'students'
@@ -4041,7 +4295,10 @@ Thank you!`;
                   Student Attendance
                 </button>
                 <button
-                  onClick={() => setAttendanceSubTab('teachers')}
+                  onClick={() => {
+                    setAttendanceSubTab('teachers');
+                    setAttendanceStatusFilter('all');
+                  }}
                   className={`py-3 px-6 text-xs font-black uppercase tracking-wider border-b-2 transition-all duration-200 cursor-pointer ${
                     attendanceSubTab === 'teachers'
                       ? 'border-primary text-primary'
@@ -4060,20 +4317,55 @@ Thank you!`;
                     <div className="space-y-4">
                       <div className="text-left space-y-1">
                         <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Select Class Stream</h3>
-                        <p className="text-xs text-slate-450 font-semibold">Choose a class below to view its roster and log attendance.</p>
+                        <p className="text-xs text-slate-450 font-semibold">Choose a class below to view its roster and log attendance for {attendanceDate}.</p>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
                         {classesOptions.map((cName) => {
-                          const classStudentsCount = students.filter(s => s.class === cName).length;
+                          const classStudents = students.filter(s => {
+                            if (s.class !== cName) return false;
+                            if (!s.joiningDate) return true;
+                            const jd = new Date(s.joiningDate);
+                            const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                            return attendanceDate >= jdStr;
+                          });
+                          const classStudentsCount = classStudents.length;
+                          
+                          let p = 0, a = 0, h = 0, u = 0;
+                          classStudents.forEach(s => {
+                            const st = attendanceRegistry[`${attendanceDate}_${s.studentId}`];
+                            if (st === 'present') p++;
+                            else if (st === 'absent') a++;
+                            else if (st === 'holiday') h++;
+                            else u++;
+                          });
+
+                          const isMarked = classStudentsCount > 0 && u === 0;
+                          const isPartial = classStudentsCount > 0 && !isMarked && u < classStudentsCount;
+
                           return (
                             <div
                               key={cName}
-                              className="bg-white border border-slate-100 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left"
+                              className="bg-white border border-slate-150 rounded-3xl p-5 shadow-premium hover:shadow-premiumHover hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between text-left relative overflow-hidden"
                             >
                               <div>
-                                <div className="p-3 bg-indigo-50 text-indigo-650 rounded-2xl w-fit">
-                                  <Users className="w-5 h-5" />
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="p-3 bg-indigo-50 text-indigo-650 rounded-2xl w-fit">
+                                    <Users className="w-5 h-5" />
+                                  </div>
+                                  {isMarked ? (
+                                    <span className="text-[10px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                      ✓ {p} Present{a > 0 ? `, ${a} Absent` : ''}
+                                    </span>
+                                  ) : isPartial ? (
+                                    <span className="text-[10px] font-extrabold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-full">
+                                      ⏳ {p}P / {a}A ({u} Pend)
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-extrabold text-slate-400 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full">
+                                      Not Marked
+                                    </span>
+                                  )}
                                 </div>
                                 <h4 className="text-sm font-extrabold text-slate-800 mt-4 font-heading">{cName}</h4>
                                 <span className="text-[11px] font-bold text-slate-400 mt-1 block">
@@ -4082,7 +4374,10 @@ Thank you!`;
                               </div>
                               
                               <button
-                                onClick={() => setSelectedClassAttendance(cName)}
+                                onClick={() => {
+                                  setSelectedClassAttendance(cName);
+                                  setAttendanceStatusFilter('all');
+                                }}
                                 className="w-full text-center py-2.5 mt-5 bg-slate-50 border border-slate-150 hover:bg-indigo-50 hover:text-indigo-600 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
                               >
                                 Open Register
@@ -4095,20 +4390,14 @@ Thank you!`;
                   ) : (
                     /* Students Attendance marking list */
                     <div className="space-y-6">
-                      <div className="flex items-center justify-between">
-                        <button
-                          onClick={() => setSelectedClassAttendance(null)}
-                          className="text-xs font-bold text-secondary hover:text-secondary-dark flex items-center gap-1 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-all"
-                        >
-                          &larr; Back to Classes
-                        </button>
-                        <span className="bg-primary/5 text-primary border border-primary/10 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase">
-                          Class: {selectedClassAttendance}
-                        </span>
-                      </div>
-
                       {(() => {
-                        const classStudents = students.filter(s => s.class === selectedClassAttendance);
+                        const classStudents = students.filter(s => {
+                          if (s.class !== selectedClassAttendance) return false;
+                          if (!s.joiningDate) return true;
+                          const jd = new Date(s.joiningDate);
+                          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                          return attendanceDate >= jdStr;
+                        });
                         
                         if (classStudents.length === 0) {
                           return (
@@ -4119,8 +4408,151 @@ Thank you!`;
                           );
                         }
 
+                        let classP = 0, classA = 0, classH = 0, classU = 0;
+                        classStudents.forEach(s => {
+                          const st = attendanceRegistry[`${attendanceDate}_${s.studentId}`];
+                          if (st === 'present') classP++;
+                          else if (st === 'absent') classA++;
+                          else if (st === 'holiday') classH++;
+                          else classU++;
+                        });
+
+                        const isClassMarked = classStudents.length > 0 && classU === 0;
+                        const isClassPartial = classStudents.length > 0 && !isClassMarked && classU < classStudents.length;
+
+                        const filteredStudents = classStudents.filter(s => {
+                          const st = attendanceRegistry[`${attendanceDate}_${s.studentId}`];
+                          if (attendanceStatusFilter === 'all') return true;
+                          if (attendanceStatusFilter === 'unmarked') return !st;
+                          return st === attendanceStatusFilter;
+                        });
+
                         return (
                           <div className="space-y-4">
+                            {/* Top Info Bar */}
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-150 shadow-sm">
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => setSelectedClassAttendance(null)}
+                                  className="text-xs font-bold text-secondary hover:text-secondary-dark flex items-center gap-1 cursor-pointer bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl hover:bg-slate-100 transition-all"
+                                >
+                                  &larr; Back to Classes
+                                </button>
+                                <span className="bg-primary/5 text-primary border border-primary/10 px-4 py-1.5 rounded-full text-xs font-extrabold uppercase font-heading">
+                                  Class: {selectedClassAttendance}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {isClassMarked ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Attendance Marked for {attendanceDate} ({classP} Present, {classA} Absent)
+                                  </span>
+                                ) : isClassPartial ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold text-amber-700 bg-amber-50 border border-amber-200">
+                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                    Partially Marked for {attendanceDate} ({classP} Present, {classA} Absent, {classU} Pending)
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold text-rose-700 bg-rose-50 border border-rose-200">
+                                    <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                                    Not Marked Yet for {attendanceDate}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Quick Batch Action Bar & Filter Tabs */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200">
+                              {/* Filter Tabs */}
+                              <div className="flex items-center gap-1.5 bg-slate-200/60 p-1 rounded-xl">
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceStatusFilter('all')}
+                                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    attendanceStatusFilter === 'all'
+                                      ? 'bg-white text-slate-800 shadow-sm'
+                                      : 'text-slate-600 hover:text-slate-900'
+                                  }`}
+                                >
+                                  All ({classStudents.length})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceStatusFilter('present')}
+                                  className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                    attendanceStatusFilter === 'present'
+                                      ? 'bg-emerald-600 text-white shadow-sm'
+                                      : 'text-emerald-700 hover:bg-emerald-100/50'
+                                  }`}
+                                >
+                                  ✓ Present ({classP})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceStatusFilter('absent')}
+                                  className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                    attendanceStatusFilter === 'absent'
+                                      ? 'bg-rose-600 text-white shadow-sm'
+                                      : 'text-rose-700 hover:bg-rose-100/50'
+                                  }`}
+                                >
+                                  ✗ Absent ({classA})
+                                </button>
+                                {classH > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAttendanceStatusFilter('holiday')}
+                                    className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                      attendanceStatusFilter === 'holiday'
+                                        ? 'bg-amber-600 text-white shadow-sm'
+                                        : 'text-amber-700 hover:bg-amber-100/50'
+                                    }`}
+                                  >
+                                    Holiday ({classH})
+                                  </button>
+                                )}
+                                {classU > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setAttendanceStatusFilter('unmarked')}
+                                    className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                      attendanceStatusFilter === 'unmarked'
+                                        ? 'bg-slate-700 text-white shadow-sm'
+                                        : 'text-slate-600 hover:bg-slate-300/50'
+                                    }`}
+                                  >
+                                    Pending ({classU})
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkAllStudentAttendance('present')}
+                                  className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
+                                >
+                                  ✓ Mark All Present
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkAllStudentAttendance('absent')}
+                                  className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
+                                >
+                                  ✗ Mark All Absent
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkAllStudentAttendance(null)}
+                                  className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+                            </div>
+
                             <div className="overflow-x-auto border border-slate-150 rounded-2xl bg-white shadow-premium">
                               <table className="w-full text-left text-xs border-collapse">
                                 <thead>
@@ -4132,86 +4564,100 @@ Thank you!`;
                                   </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-650">
-                                  {classStudents.map((s, idx) => {
-                                    const registryKey = `${attendanceDate}_${s.studentId}`;
-                                    const currentStatus = attendanceRegistry[registryKey] || 'present';
-                                    
-                                    return (
-                                      <tr key={s._id} className="hover:bg-slate-50/30 transition-colors">
-                                        <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
-                                        <td className="px-6 py-4 text-primary font-stats font-bold">{s.studentId}</td>
-                                        <td className="px-6 py-4">
-                                          <div className="flex items-center justify-between gap-2 max-w-[200px]">
-                                            <span className="font-bold text-slate-800">{s.name}</span>
-                                            <button
-                                              onClick={() => {
-                                                setSelectedViewAttendanceUser(s);
-                                                setViewAttendanceUserType('student');
-                                                setViewAttendanceCurrentDate(new Date());
-                                                setIsViewAttendanceModalOpen(true);
-                                                fetchViewAttendanceHistory('student', s.studentId);
-                                              }}
-                                              className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors shrink-0"
-                                              title="View Attendance History"
-                                            >
-                                              History
-                                            </button>
-                                          </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                          <div className="flex items-center justify-center gap-4">
-                                            {/* Present */}
-                                            <label className="flex items-center gap-1.5 cursor-pointer">
-                                              <input
-                                                type="radio"
-                                                name={`status_${s.studentId}`}
-                                                value="present"
-                                                checked={currentStatus === 'present'}
-                                                onChange={() => setAttendanceRegistry(prev => ({
-                                                  ...prev,
-                                                  [registryKey]: 'present'
-                                                }))}
-                                                className="accent-emerald-600"
-                                              />
-                                              <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Present</span>
-                                            </label>
+                                  {filteredStudents.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={4} className="py-10 text-center text-slate-400 italic font-semibold">
+                                        No students found matching filter "{attendanceStatusFilter}".
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    filteredStudents.map((s, idx) => {
+                                      const registryKey = `${attendanceDate}_${s.studentId}`;
+                                      const currentStatus = attendanceRegistry[registryKey];
+                                      
+                                      return (
+                                        <tr key={s._id} className="hover:bg-slate-50/30 transition-colors">
+                                          <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                                          <td className="px-6 py-4 text-primary font-stats font-bold">{s.studentId}</td>
+                                          <td className="px-6 py-4">
+                                            <div className="flex items-center justify-between gap-2 max-w-[200px]">
+                                              <span className="font-bold text-slate-800">{s.name}</span>
+                                              <button
+                                                onClick={() => {
+                                                  setSelectedViewAttendanceUser(s);
+                                                  setViewAttendanceUserType('student');
+                                                  setViewAttendanceCurrentDate(new Date());
+                                                  setIsViewAttendanceModalOpen(true);
+                                                  fetchViewAttendanceHistory('student', s.studentId);
+                                                }}
+                                                className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors shrink-0"
+                                                title="View Attendance History"
+                                              >
+                                                History
+                                              </button>
+                                            </div>
+                                          </td>
+                                          <td className="px-6 py-4 text-center">
+                                            <div className="flex items-center justify-center gap-4">
+                                              {/* Present */}
+                                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                                <input
+                                                  type="radio"
+                                                  name={`status_${s.studentId}`}
+                                                  value="present"
+                                                  checked={currentStatus === 'present'}
+                                                  onChange={() => setAttendanceRegistry(prev => ({
+                                                    ...prev,
+                                                    [registryKey]: 'present'
+                                                  }))}
+                                                  className="accent-emerald-600"
+                                                />
+                                                <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Present</span>
+                                              </label>
 
-                                            {/* Absent */}
-                                            <label className="flex items-center gap-1.5 cursor-pointer">
-                                              <input
-                                                type="radio"
-                                                name={`status_${s.studentId}`}
-                                                value="absent"
-                                                checked={currentStatus === 'absent'}
-                                                onChange={() => setAttendanceRegistry(prev => ({
-                                                  ...prev,
-                                                  [registryKey]: 'absent'
-                                                }))}
-                                                className="accent-rose-600"
-                                              />
-                                              <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">Absent</span>
-                                            </label>
+                                              {/* Absent */}
+                                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                                <input
+                                                  type="radio"
+                                                  name={`status_${s.studentId}`}
+                                                  value="absent"
+                                                  checked={currentStatus === 'absent'}
+                                                  onChange={() => setAttendanceRegistry(prev => ({
+                                                    ...prev,
+                                                    [registryKey]: 'absent'
+                                                  }))}
+                                                  className="accent-rose-600"
+                                                />
+                                                <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">Absent</span>
+                                              </label>
 
-                                            {/* Holiday */}
-                                            <label className="flex items-center gap-1.5 cursor-pointer">
-                                              <input
-                                                type="radio"
-                                                name={`status_${s.studentId}`}
-                                                value="holiday"
-                                                checked={currentStatus === 'holiday'}
-                                                onChange={() => setAttendanceRegistry(prev => ({
-                                                  ...prev,
-                                                  [registryKey]: 'holiday'
-                                                }))}
-                                                className="accent-amber-600"
-                                              />
-                                              <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">Holiday</span>
-                                            </label>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
+                                              {/* Holiday */}
+                                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                                <input
+                                                  type="radio"
+                                                  name={`status_${s.studentId}`}
+                                                  value="holiday"
+                                                  checked={currentStatus === 'holiday'}
+                                                  onChange={() => setAttendanceRegistry(prev => ({
+                                                    ...prev,
+                                                    [registryKey]: 'holiday'
+                                                  }))}
+                                                  className="accent-amber-600"
+                                                />
+                                                <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">Holiday</span>
+                                              </label>
+
+                                              {!currentStatus && (
+                                                <span className="text-[9px] font-extrabold uppercase text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md italic">
+                                                  Unmarked
+                                                </span>
+                                              )}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })
+                                  )}
                                 </tbody>
                               </table>
                             </div>
@@ -4248,131 +4694,294 @@ Thank you!`;
                       <p>No teachers registered yet.</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      <div className="text-left space-y-1">
-                        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Teacher Roster Attendance</h3>
-                        <p className="text-xs text-slate-455 font-semibold">Track daily present, absent, or holiday state logs for teaching staff.</p>
-                      </div>
+                    (() => {
+                      const activeTeachers = teachers.filter(t => {
+                        if (!t.joiningDate) return true;
+                        const jd = new Date(t.joiningDate);
+                        const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                        return attendanceDate >= jdStr;
+                      });
 
-                      <div className="overflow-x-auto border border-slate-150 rounded-2xl bg-white shadow-premium">
-                        <table className="w-full text-left text-xs border-collapse">
-                          <thead>
-                            <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                              <th className="px-6 py-4 text-center w-12">S.No.</th>
-                              <th className="px-6 py-4">Teacher ID</th>
-                              <th className="px-6 py-4">Teacher Name</th>
-                              <th className="px-6 py-4">Subject</th>
-                              <th className="px-6 py-4 text-center w-72">Attendance Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-650">
-                            {teachers.map((t, idx) => {
-                              const registryKey = `${attendanceDate}_${t._id}`;
-                              let isBeforeJoining = false;
-                              if (t.joiningDate) {
-                                const jd = new Date(t.joiningDate);
-                                const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
-                                isBeforeJoining = attendanceDate < jdStr;
-                              }
-                              const currentStatus = isBeforeJoining ? 'absent' : (attendanceRegistry[registryKey] || 'present');
-                              
-                              return (
-                                <tr key={t._id} className="hover:bg-slate-50/30 transition-colors">
-                                  <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
-                                  <td className="px-6 py-4 text-primary font-stats font-bold">{t.teacherId || `T-${t._id.toString().substring(18).toUpperCase()}`}</td>
-                                  <td className="px-6 py-4">
-                                    <div className="flex items-center justify-between gap-2 max-w-[200px]">
-                                      <span className="font-bold text-slate-800">{t.name}</span>
-                                      <button
-                                        onClick={() => {
-                                          setSelectedViewAttendanceUser(t);
-                                          setViewAttendanceUserType('teacher');
-                                          setViewAttendanceCurrentDate(new Date());
-                                          setIsViewAttendanceModalOpen(true);
-                                          fetchViewAttendanceHistory('teacher', t._id);
-                                        }}
-                                        className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors shrink-0"
-                                        title="View Attendance History"
-                                      >
-                                        History
-                                      </button>
-                                    </div>
-                                  </td>
-                                  <td className="px-6 py-4 text-slate-450">{t.subject || 'General'}</td>
-                                  <td className="px-6 py-4 text-center">
-                                    {isBeforeJoining ? (
-                                      <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-2.5 py-1 rounded-md">
-                                        Not Joined Yet (Auto-Absent)
-                                      </span>
-                                    ) : (
-                                      <div className="flex items-center justify-center gap-4">
-                                        {/* Present */}
-                                        <label className="flex items-center gap-1.5 cursor-pointer">
-                                          <input
-                                            type="radio"
-                                            name={`status_t_${t._id}`}
-                                            value="present"
-                                            checked={currentStatus === 'present'}
-                                            onChange={() => setAttendanceRegistry(prev => ({
-                                              ...prev,
-                                              [registryKey]: 'present'
-                                            }))}
-                                            className="accent-emerald-600"
-                                          />
-                                          <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Present</span>
-                                        </label>
+                      let tP = 0, tA = 0, tH = 0, tU = 0;
+                      activeTeachers.forEach(t => {
+                        const st = attendanceRegistry[`${attendanceDate}_${t._id}`];
+                        if (st === 'present') tP++;
+                        else if (st === 'absent') tA++;
+                        else if (st === 'holiday') tH++;
+                        else tU++;
+                      });
 
-                                        {/* Absent */}
-                                        <label className="flex items-center gap-1.5 cursor-pointer">
-                                          <input
-                                            type="radio"
-                                            name={`status_t_${t._id}`}
-                                            value="absent"
-                                            checked={currentStatus === 'absent'}
-                                            onChange={() => setAttendanceRegistry(prev => ({
-                                              ...prev,
-                                              [registryKey]: 'absent'
-                                            }))}
-                                            className="accent-rose-600"
-                                          />
-                                          <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">Absent</span>
-                                        </label>
+                      const isTeacherMarked = activeTeachers.length > 0 && tU === 0;
+                      const isTeacherPartial = activeTeachers.length > 0 && !isTeacherMarked && tU < activeTeachers.length;
 
-                                        {/* Holiday */}
-                                        <label className="flex items-center gap-1.5 cursor-pointer">
-                                          <input
-                                            type="radio"
-                                            name={`status_t_${t._id}`}
-                                            value="holiday"
-                                            checked={currentStatus === 'holiday'}
-                                            onChange={() => setAttendanceRegistry(prev => ({
-                                              ...prev,
-                                              [registryKey]: 'holiday'
-                                            }))}
-                                            className="accent-amber-600"
-                                          />
-                                          <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">Holiday</span>
-                                        </label>
-                                      </div>
-                                    )}
-                                  </td>
+                      const filteredTeachers = teachers.filter(t => {
+                        let isBeforeJoining = false;
+                        if (t.joiningDate) {
+                          const jd = new Date(t.joiningDate);
+                          const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                          isBeforeJoining = attendanceDate < jdStr;
+                        }
+                        const st = isBeforeJoining ? 'absent' : attendanceRegistry[`${attendanceDate}_${t._id}`];
+                        if (attendanceStatusFilter === 'all') return true;
+                        if (attendanceStatusFilter === 'unmarked') return !st && !isBeforeJoining;
+                        return st === attendanceStatusFilter;
+                      });
+
+                      return (
+                        <div className="space-y-4">
+                          {/* Header Bar */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-150 shadow-sm">
+                            <div className="text-left space-y-1">
+                              <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest font-heading">Teacher Roster Attendance</h3>
+                              <p className="text-xs text-slate-455 font-semibold font-sans">Track daily present, absent, or holiday state logs for teaching staff.</p>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {isTeacherMarked ? (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200">
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                  Attendance Marked for {attendanceDate} ({tP} Present, {tA} Absent)
+                                </span>
+                              ) : isTeacherPartial ? (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold text-amber-700 bg-amber-50 border border-amber-200">
+                                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                  Partially Marked for {attendanceDate} ({tP} Present, {tA} Absent, {tU} Pending)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold text-rose-700 bg-rose-50 border border-rose-200">
+                                  <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                                  Not Marked Yet for {attendanceDate}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Quick Batch Action Bar & Filter Tabs */}
+                          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200">
+                            {/* Filter Tabs */}
+                            <div className="flex items-center gap-1.5 bg-slate-200/60 p-1 rounded-xl">
+                              <button
+                                type="button"
+                                onClick={() => setAttendanceStatusFilter('all')}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                  attendanceStatusFilter === 'all'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                              >
+                                All ({teachers.length})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAttendanceStatusFilter('present')}
+                                className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                  attendanceStatusFilter === 'present'
+                                    ? 'bg-emerald-600 text-white shadow-sm'
+                                    : 'text-emerald-700 hover:bg-emerald-100/50'
+                                }`}
+                              >
+                                ✓ Present ({tP})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAttendanceStatusFilter('absent')}
+                                className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                  attendanceStatusFilter === 'absent'
+                                    ? 'bg-rose-600 text-white shadow-sm'
+                                    : 'text-rose-700 hover:bg-rose-100/50'
+                                }`}
+                              >
+                                ✗ Absent ({tA})
+                              </button>
+                              {tH > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceStatusFilter('holiday')}
+                                  className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                    attendanceStatusFilter === 'holiday'
+                                      ? 'bg-amber-600 text-white shadow-sm'
+                                      : 'text-amber-700 hover:bg-amber-100/50'
+                                  }`}
+                                >
+                                  Holiday ({tH})
+                                </button>
+                              )}
+                              {tU > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setAttendanceStatusFilter('unmarked')}
+                                  className={`px-3 py-1 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
+                                    attendanceStatusFilter === 'unmarked'
+                                      ? 'bg-slate-700 text-white shadow-sm'
+                                      : 'text-slate-600 hover:bg-slate-300/50'
+                                  }`}
+                                >
+                                  Pending ({tU})
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleMarkAllTeacherAttendance('present')}
+                                className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
+                              >
+                                ✓ Mark All Present
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkAllTeacherAttendance('absent')}
+                                className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-sm"
+                              >
+                                ✗ Mark All Absent
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkAllTeacherAttendance(null)}
+                                className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Table */}
+                          <div className="overflow-x-auto border border-slate-150 rounded-2xl bg-white shadow-premium">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                  <th className="px-6 py-4 text-center w-12">S.No.</th>
+                                  <th className="px-6 py-4">Teacher ID</th>
+                                  <th className="px-6 py-4">Teacher Name</th>
+                                  <th className="px-6 py-4">Subject</th>
+                                  <th className="px-6 py-4 text-center w-72">Attendance Status</th>
                                 </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 text-xs font-semibold text-slate-650">
+                                {filteredTeachers.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={5} className="py-10 text-center text-slate-400 italic font-semibold">
+                                      No teachers found matching filter "{attendanceStatusFilter}".
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  filteredTeachers.map((t, idx) => {
+                                    const registryKey = `${attendanceDate}_${t._id}`;
+                                    let isBeforeJoining = false;
+                                    if (t.joiningDate) {
+                                      const jd = new Date(t.joiningDate);
+                                      const jdStr = `${jd.getFullYear()}-${String(jd.getMonth() + 1).padStart(2, '0')}-${String(jd.getDate()).padStart(2, '0')}`;
+                                      isBeforeJoining = attendanceDate < jdStr;
+                                    }
+                                    const currentStatus = isBeforeJoining ? 'absent' : attendanceRegistry[registryKey];
+                                    
+                                    return (
+                                      <tr key={t._id} className="hover:bg-slate-50/30 transition-colors">
+                                        <td className="px-6 py-4 text-center font-bold text-slate-400">{idx + 1}</td>
+                                        <td className="px-6 py-4 text-primary font-stats font-bold">{t.teacherId || `T-${t._id.toString().substring(18).toUpperCase()}`}</td>
+                                        <td className="px-6 py-4">
+                                          <div className="flex items-center justify-between gap-2 max-w-[200px]">
+                                            <span className="font-bold text-slate-800">{t.name}</span>
+                                            <button
+                                              onClick={() => {
+                                                setSelectedViewAttendanceUser(t);
+                                                setViewAttendanceUserType('teacher');
+                                                setViewAttendanceCurrentDate(new Date());
+                                                setIsViewAttendanceModalOpen(true);
+                                                fetchViewAttendanceHistory('teacher', t._id);
+                                              }}
+                                              className="px-2 py-1 text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors shrink-0"
+                                              title="View Attendance History"
+                                            >
+                                              History
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-slate-450">{t.subject || 'General'}</td>
+                                        <td className="px-6 py-4 text-center">
+                                          {isBeforeJoining ? (
+                                            <span className="text-[10px] font-bold uppercase text-slate-400 bg-slate-100 px-2.5 py-1 rounded-md">
+                                              Not Joined Yet (Auto-Absent)
+                                            </span>
+                                          ) : (
+                                            <div className="flex items-center justify-center gap-4">
+                                              {/* Present */}
+                                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                                <input
+                                                  type="radio"
+                                                  name={`status_t_${t._id}`}
+                                                  value="present"
+                                                  checked={currentStatus === 'present'}
+                                                  onChange={() => setAttendanceRegistry(prev => ({
+                                                    ...prev,
+                                                    [registryKey]: 'present'
+                                                  }))}
+                                                  className="accent-emerald-600"
+                                                />
+                                                <span className="text-[10px] font-bold uppercase text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">Present</span>
+                                              </label>
 
-                      {/* Submit Bar */}
-                      <div className="flex justify-end gap-3 pt-2">
-                        <button
-                          className="px-5 py-2.5 bg-primary hover:bg-primary-light text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
-                          onClick={handleSaveTeacherAttendance}
-                        >
-                          Submit Teacher Attendance
-                        </button>
-                      </div>
-                    </div>
+                                              {/* Absent */}
+                                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                                <input
+                                                  type="radio"
+                                                  name={`status_t_${t._id}`}
+                                                  value="absent"
+                                                  checked={currentStatus === 'absent'}
+                                                  onChange={() => setAttendanceRegistry(prev => ({
+                                                    ...prev,
+                                                    [registryKey]: 'absent'
+                                                  }))}
+                                                  className="accent-rose-600"
+                                                />
+                                                <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">Absent</span>
+                                              </label>
+
+                                              {/* Holiday */}
+                                              <label className="flex items-center gap-1.5 cursor-pointer">
+                                                <input
+                                                  type="radio"
+                                                  name={`status_t_${t._id}`}
+                                                  value="holiday"
+                                                  checked={currentStatus === 'holiday'}
+                                                  onChange={() => setAttendanceRegistry(prev => ({
+                                                    ...prev,
+                                                    [registryKey]: 'holiday'
+                                                  }))}
+                                                  className="accent-amber-600"
+                                                />
+                                                <span className="text-[10px] font-bold uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">Holiday</span>
+                                              </label>
+
+                                              {!currentStatus && (
+                                                <span className="text-[9px] font-extrabold uppercase text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md italic">
+                                                  Unmarked
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Submit Bar */}
+                          <div className="flex justify-end gap-3 pt-2">
+                            <button
+                              onClick={handleSaveTeacherAttendance}
+                              className="px-5 py-2.5 bg-primary hover:bg-primary-light text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+                            >
+                              Submit Teacher Attendance Roster
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
               )}
@@ -5374,54 +5983,91 @@ Thank you!`;
                 </div>
 
                 {/* Medium Selector */}
-                <div className="space-y-1">
-                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Medium *</label>
-                  <div className="flex rounded-lg overflow-hidden border border-slate-200 h-[38px]">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (editingStudent) {
-                          setStudentForm(prev => ({ ...prev, medium: 'English' }));
-                          // refetch fee with English
-                          apiFetch(`/api/fees/structure/${studentForm.class}`)
-                            .then(s => s && setStudentForm(prev => ({ ...prev, totalFees: s.englishMediumFee || s.fee || 0 })))
-                            .catch(() => {});
-                        } else {
-                          handleStudentMediumChange('English');
-                        }
-                      }}
-                      className={`flex-1 text-xs font-extrabold tracking-wide transition-all duration-200 ${
-                        studentForm.medium === 'English'
-                          ? 'bg-emerald-600 text-white shadow-inner'
-                          : 'bg-slate-50 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700'
-                      }`}
-                    >
-                      🇬🇧 English
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (editingStudent) {
-                          setStudentForm(prev => ({ ...prev, medium: 'Hindi' }));
-                          apiFetch(`/api/fees/structure/${studentForm.class}`)
-                            .then(s => s && setStudentForm(prev => ({ ...prev, totalFees: s.hindiMediumFee || 0 })))
-                            .catch(() => {});
-                        } else {
-                          handleStudentMediumChange('Hindi');
-                        }
-                      }}
-                      className={`flex-1 text-xs font-extrabold tracking-wide border-l border-slate-200 transition-all duration-200 ${
-                        studentForm.medium === 'Hindi'
-                          ? 'bg-indigo-600 text-white shadow-inner'
-                          : 'bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
-                      }`}
-                    >
-                      🇮🇳 Hindi
-                    </button>
-                  </div>
-                  {studentForm.medium && studentForm.totalFees > 0 && (
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Medium / Fee Plan *</label>
+                  {['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(studentForm.class) ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleFeeOptionSelect('English(Y)')}
+                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
+                          studentForm.medium === 'English' && (studentForm.feeOption === 'English(Y)' || !studentForm.feeOption || studentForm.feeOption === 'English')
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300/50'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">🇬🇧 English(Y)</span>
+                        <span className="text-[9px] opacity-80 font-normal">Yearly Fee</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleFeeOptionSelect('English(M)')}
+                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
+                          studentForm.medium === 'English' && studentForm.feeOption === 'English(M)'
+                            ? 'bg-emerald-700 text-white border-emerald-700 shadow-md ring-2 ring-emerald-300/50'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">🇬🇧 English(M)</span>
+                        <span className="text-[9px] opacity-80 font-normal">Monthly Fee</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleFeeOptionSelect('Hindi(Y)')}
+                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
+                          studentForm.medium === 'Hindi' && (studentForm.feeOption === 'Hindi(Y)' || !studentForm.feeOption || studentForm.feeOption === 'Hindi')
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-300/50'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">🇮🇳 Hindi(Y)</span>
+                        <span className="text-[9px] opacity-80 font-normal">Yearly Fee</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleFeeOptionSelect('Hindi(M)')}
+                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
+                          studentForm.medium === 'Hindi' && studentForm.feeOption === 'Hindi(M)'
+                            ? 'bg-indigo-700 text-white border-indigo-700 shadow-md ring-2 ring-indigo-300/50'
+                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1">🇮🇳 Hindi(M)</span>
+                        <span className="text-[9px] opacity-80 font-normal">Monthly Fee</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex rounded-lg overflow-hidden border border-slate-200 h-[38px]">
+                      <button
+                        type="button"
+                        onClick={() => handleFeeOptionSelect('English')}
+                        className={`flex-1 text-xs font-extrabold tracking-wide transition-all duration-200 ${
+                          studentForm.medium === 'English'
+                            ? 'bg-emerald-600 text-white shadow-inner'
+                            : 'bg-slate-50 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700'
+                        }`}
+                      >
+                        🇬🇧 English
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFeeOptionSelect('Hindi')}
+                        className={`flex-1 text-xs font-extrabold tracking-wide border-l border-slate-200 transition-all duration-200 ${
+                          studentForm.medium === 'Hindi'
+                            ? 'bg-indigo-600 text-white shadow-inner'
+                            : 'bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700'
+                        }`}
+                      >
+                        🇮🇳 Hindi
+                      </button>
+                    </div>
+                  )}
+                  {studentForm.medium && (
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Auto-filled fee: <span className="font-bold text-primary">₹{studentForm.totalFees.toLocaleString()}</span>
+                      Selected Plan: <span className="font-bold text-slate-700">{studentForm.feeOption || studentForm.medium}</span> | Auto-filled fee: <span className="font-bold text-primary">₹{studentForm.totalFees.toLocaleString()}</span>
                     </p>
                   )}
                 </div>
@@ -5436,6 +6082,17 @@ Thank you!`;
                     value={studentForm.phone}
                     onChange={(e) => setStudentForm((prev) => ({ ...prev, phone: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-500 uppercase tracking-wider block">Joining Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={studentForm.joiningDate || getLocalDateStr()}
+                    onChange={(e) => setStudentForm((prev) => ({ ...prev, joiningDate: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white text-slate-700 font-semibold cursor-pointer"
                   />
                 </div>
               </div>
@@ -6161,16 +6818,43 @@ Thank you!`;
 
               <div className="space-y-1.5">
                 <label className="font-extrabold text-slate-500 uppercase tracking-wider block">Paid Amount (भुगतान राशि) *</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-sm">₹</span>
-                  <input
-                    type="number"
-                    value={paidSalaryAmount}
-                    onChange={(e) => setPaidSalaryAmount(e.target.value)}
-                    placeholder="Enter amount paid to teacher..."
-                    className="w-full pl-7 pr-4 py-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none focus:bg-white focus:ring-2 focus:ring-primary/10 focus:border-primary font-bold text-slate-700"
-                    required
-                  />
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-sm">₹</span>
+                    <input
+                      type="number"
+                      value={paidSalaryAmount}
+                      onChange={(e) => setPaidSalaryAmount(e.target.value)}
+                      placeholder="Enter amount paid to teacher..."
+                      className="w-full pl-7 pr-4 py-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none focus:bg-white focus:ring-2 focus:ring-primary/10 focus:border-primary font-bold text-slate-700"
+                      required
+                    />
+                  </div>
+
+                  {/* Right / Checkmark (Confirm & Auto-Add to Expenses) Button */}
+                  <button
+                    type="button"
+                    onClick={handleConfirmTeacherSalaryPayment}
+                    disabled={!paidSalaryAmount || parseFloat(paidSalaryAmount) <= 0 || loading}
+                    className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-xl font-bold cursor-pointer transition-all shadow hover:shadow-md flex items-center justify-center shrink-0"
+                    title="Confirm & Auto-Add to Expenses"
+                  >
+                    <Check className="w-5 h-5" />
+                  </button>
+
+                  {/* Cross / Cancel Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPaySalaryModalOpen(false);
+                      setSelectedPaySalaryTeacher(null);
+                      setPaidSalaryAmount('');
+                    }}
+                    className="p-2.5 bg-rose-100 hover:bg-rose-200 text-rose-600 rounded-xl font-bold cursor-pointer transition-colors flex items-center justify-center shrink-0"
+                    title="Cancel"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
               </div>
 
@@ -6197,41 +6881,12 @@ Thank you!`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (paidSalaryAmount === '') return;
-                    
-                    const teacherName = selectedPaySalaryTeacher.name;
-                    const totalSalary = selectedPaySalaryTeacher.salaryEarned || 0;
-                    const paidAmount = parseFloat(paidSalaryAmount || 0);
-                    const remainingAmount = totalSalary - paidAmount;
-                    const monthName = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][parseInt(salaryMonth) - 1];
-                    
-                    const message = `*Salary Processed - Vidyarthi Classes*\n\n` +
-                      `Hello *${teacherName}*,\n` +
-                      `Your salary details for *${monthName} ${salaryYear}* have been processed.\n\n` +
-                      `• Total Salary (कुल सैलरी): ₹${totalSalary.toLocaleString()}\n` +
-                      `• Amount Paid (भुगतान राशि): ₹${paidAmount.toLocaleString()}\n` +
-                      `• Remaining Balance (शेष राशि): ₹${remainingAmount.toLocaleString()}\n\n` +
-                      `Thank you!`;
-
-                    let cleaned = selectedPaySalaryTeacher.phone.replace(/\D/g, '');
-                    if (cleaned.length === 10) {
-                      cleaned = '91' + cleaned;
-                    }
-                    
-                    window.open(`https://api.whatsapp.com/send?phone=${cleaned}&text=${encodeURIComponent(message)}`, '_blank');
-                    
-                    setIsPaySalaryModalOpen(false);
-                    setSelectedPaySalaryTeacher(null);
-                    setPaidSalaryAmount('');
-                  }}
-                  disabled={paidSalaryAmount === ''}
+                  onClick={handleConfirmTeacherSalaryPayment}
+                  disabled={paidSalaryAmount === '' || parseFloat(paidSalaryAmount || 0) <= 0 || loading}
                   className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-xl font-bold shadow-md hover:shadow-lg cursor-pointer transition-all flex items-center gap-1.5"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 fill-current" viewBox="0 0 448 512">
-                    <path d="M380.9 97.1C339 55.1 283.2 32 223.9 32c-122.4 0-222 99.6-222 222 0 39.1 10.2 77.3 29.6 111L0 480l117.7-30.9c32.4 17.7 68.9 27 106.1 27h.1c122.3 0 224.1-99.6 224.1-222 0-59.3-25.2-115-67.1-157zm-157 341.6c-33.2 0-65.7-8.9-94-25.7l-6.7-4-69.8 18.3L72 359.2l-4.4-7c-18.5-29.4-28.2-63.3-28.2-98.2 0-101.7 82.8-184.5 184.6-184.5 49.3 0 95.6 19.2 130.4 54.1 34.8 34.9 56.2 81.2 56.1 130.5 0 101.8-84.9 184.6-186.6 184.6zm101.2-138.2c-5.5-2.8-32.8-16.2-37.9-18-5.1-1.9-8.8-2.8-12.5 2.8-3.7 5.6-14.3 18-17.6 21.8-3.2 3.7-6.5 4.2-12 1.4-32.6-16.3-54-29.1-75.5-66-5.7-9.8 5.7-9.1 16.3-30.3 1.8-3.7 .9-6.9-.5-9.7-1.4-2.8-12.5-30.1-17.1-41.2-4.5-10.8-9.1-9.3-12.5-9.5-3.2-.2-6.9-.2-10.6-.2-3.7 0-9.7 1.4-14.8 6.9-5.1 5.6-19.4 19-19.4 46.3 0 27.3 19.9 53.7 22.6 57.4 2.8 3.7 39.1 59.7 94.8 83.8 35.2 15.2 49 16.5 66.6 13.9 10.7-1.6 32.8-13.4 37.4-26.4 4.6-13 4.6-24.1 3.2-26.4-1.3-2.5-5-3.9-10.5-6.6z"/>
-                  </svg>
-                  Send WhatsApp Update
+                  <Check className="w-4 h-4" />
+                  Confirm & Log to Expenses
                 </button>
               </div>
             </div>
@@ -7318,6 +7973,7 @@ Thank you!`;
                           <tr><td className="font-bold text-slate-500 py-0.5">Course</td><td>: {student.class}</td></tr>
                           <tr><td className="font-bold text-slate-500 py-0.5">Class/Batch</td><td>: {student.class}</td></tr>
                           <tr><td className="font-bold text-slate-500 py-0.5">Phone No.</td><td>: {student.phone}</td></tr>
+                          <tr><td className="font-bold text-slate-500 py-0.5">Joining Date</td><td>: {student.joiningDate ? new Date(student.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A')}</td></tr>
                           <tr><td className="font-bold text-slate-500 py-0.5">Address</td><td>: {student.address || 'N/A'}</td></tr>
                         </tbody>
                       </table>
