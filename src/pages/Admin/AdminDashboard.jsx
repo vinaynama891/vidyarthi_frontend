@@ -45,6 +45,7 @@ import {
 import logo from '../../assets/logo.png';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { getStudentComputedFee, isClass1to7, getStudentElapsedMonths } from '../../utils/feeUtils';
 
 
 const AdminDashboard = () => {
@@ -241,9 +242,251 @@ const AdminDashboard = () => {
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [selectedReceiptStudent, setSelectedReceiptStudent] = useState(null);
 
+  // Student Profile Modal States
+  const [isStudentProfileModalOpen, setIsStudentProfileModalOpen] = useState(false);
+  const [profileStudent, setProfileStudent] = useState(null);
+  const [profileAttendanceHistory, setProfileAttendanceHistory] = useState([]);
+  const [profileTestResults, setProfileTestResults] = useState([]);
+  const [profileLoading, setProfileLoading] = useState(false);
+
   const openReceiptModal = (student) => {
     setSelectedReceiptStudent(student);
     setIsReceiptModalOpen(true);
+  };
+
+  const openStudentProfileModal = async (student) => {
+    setProfileStudent(student);
+    setProfileAttendanceHistory([]);
+    setProfileTestResults([]);
+    setIsStudentProfileModalOpen(true);
+    setProfileLoading(true);
+    try {
+      // Fetch attendance history for this student
+      const attHistory = await apiFetch(`/api/attendance/history/student/${student.studentId}`);
+      setProfileAttendanceHistory(attHistory || []);
+    } catch (err) {
+      console.warn('Could not fetch profile attendance:', err.message);
+    }
+    try {
+      // Fetch test results for this student's class
+      const classResults = await apiFetch(`/api/results?classFilter=${encodeURIComponent(student.class)}`);
+      // Extract only this student's marks from each test
+      const studentResults = (classResults || []).map(test => {
+        const myResult = (test.results || []).find(r => r.studentId === student.studentId);
+        if (!myResult) return null;
+        return {
+          testDate: test.testDate,
+          subject: test.subject,
+          marks: myResult.marks,
+          totalMarks: myResult.totalMarks,
+          grade: myResult.grade,
+          isPublished: test.isPublished,
+        };
+      }).filter(Boolean);
+      setProfileTestResults(studentResults);
+    } catch (err) {
+      console.warn('Could not fetch profile test results:', err.message);
+    }
+    setProfileLoading(false);
+  };
+
+  const handlePrintParentsReport = async (student, attendanceHistory, testResults) => {
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 14;
+    let y = 14;
+
+    const primary = [108, 79, 196]; // #6c4fc4
+    const slate800 = [30, 41, 59];
+    const slate500 = [100, 116, 139];
+
+    // ── Header ──────────────────────────────────────────────────────────
+    doc.setFillColor(...primary);
+    doc.rect(0, 0, pageW, 20, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Vidhyarthi Hub', margin, 13);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Student Profile & Progress Report', margin, 18);
+
+    const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+    doc.setFontSize(8);
+    doc.text(`Generated: ${dateStr}`, pageW - margin, 13, { align: 'right' });
+    doc.text(`${student.class}  |  ${student.medium}`, pageW - margin, 18, { align: 'right' });
+    y = 26;
+
+    // ── Section helper ────────────────────────────────────────────────
+    const sectionTitle = (title) => {
+      doc.setDrawColor(...primary);
+      doc.setLineWidth(0.5);
+      doc.line(margin, y, pageW - margin, y);
+      y += 1;
+      doc.setFillColor(...primary);
+      doc.rect(margin, y, 1.5, 5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...primary);
+      doc.text(title.toUpperCase(), margin + 3, y + 4);
+      y += 9;
+    };
+
+    // ── Personal Info ──────────────────────────────────────────────────
+    sectionTitle('Personal Information');
+    const infoRows = [
+      ['Student Name', student.name, 'Student ID', student.studentId],
+      ["Father's Name", student.fatherName || '—', 'Phone', student.phone || '—'],
+      ['Class', student.class, 'Medium', student.medium],
+      ['Address', { content: student.address || '—', colSpan: 3 }],
+    ];
+    autoTable(doc, {
+      startY: y,
+      body: infoRows,
+      theme: 'plain',
+      styles: { fontSize: 9, cellPadding: 2.5, textColor: slate800 },
+      columnStyles: {
+        0: { fontStyle: 'bold', textColor: slate500, cellWidth: 32 },
+        1: { cellWidth: 58 },
+        2: { fontStyle: 'bold', textColor: slate500, cellWidth: 32 },
+        3: { cellWidth: 58 },
+      },
+      margin: { left: margin, right: margin },
+    });
+    y = doc.lastAutoTable.finalY + 6;
+
+    // ── Fee Summary ────────────────────────────────────────────────────
+    sectionTitle('Fee Summary');
+    const feeInfo = getStudentComputedFee(student);
+    const netFee = feeInfo.netFee;
+    const pendingFee = feeInfo.pendingFee;
+
+    // Stat boxes (4 boxes)
+    const boxW = (pageW - margin * 2 - 9) / 4;
+    const boxes = [
+      { label: feeInfo.isMonthly ? `Total Fee (${feeInfo.elapsedMonths} mo)` : 'Total Fee', value: `Rs.${netFee.toLocaleString()}`, color: [22, 163, 74] },
+      { label: 'Discount', value: `Rs.${(student.discount || 0).toLocaleString()}`, color: [37, 99, 235] },
+      { label: 'Paid', value: `Rs.${(student.paidFees || 0).toLocaleString()}`, color: [22, 163, 74] },
+      { label: 'Pending', value: `Rs.${pendingFee.toLocaleString()}`, color: pendingFee > 0 ? [234, 88, 12] : [22, 163, 74] },
+    ];
+    boxes.forEach((b, i) => {
+      const bx = margin + i * (boxW + 3);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(bx, y, boxW, 14, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...b.color);
+      doc.text(b.value, bx + boxW / 2, y + 7, { align: 'center' });
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...slate500);
+      doc.text(b.label.toUpperCase(), bx + boxW / 2, y + 12, { align: 'center' });
+    });
+    y += 18;
+
+    if ((student.installments || []).length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [['#', 'Amount', 'Date', 'Mode', 'Note']],
+        body: student.installments.map((inst, i) => [
+          i + 1,
+          `Rs.${(inst.amount || 0).toLocaleString()}`,
+          inst.paidDate ? new Date(inst.paidDate).toLocaleDateString('en-IN') : '—',
+          inst.mode || '—',
+          inst.note || '—',
+        ]),
+        theme: 'striped',
+        headStyles: { fillColor: primary, fontSize: 8, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        margin: { left: margin, right: margin },
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.setTextColor(...slate500);
+      doc.text('No installment records found.', margin, y + 4);
+      y += 10;
+    }
+
+    // ── Attendance ─────────────────────────────────────────────────────
+    sectionTitle('Attendance');
+    const presentCount = attendanceHistory.filter(r => r.status === 'present').length;
+    const absentCount = attendanceHistory.filter(r => r.status === 'absent').length;
+    const totalMarked = presentCount + absentCount;
+    const attendancePct = totalMarked > 0 ? ((presentCount / totalMarked) * 100).toFixed(1) : 'N/A';
+
+    const attBoxes = [
+      { label: 'Present', value: String(presentCount), color: [22, 163, 74] },
+      { label: 'Absent', value: String(absentCount), color: [220, 38, 38] },
+      { label: 'Total Days', value: String(totalMarked), color: [108, 79, 196] },
+      { label: 'Attendance %', value: attendancePct === 'N/A' ? 'N/A' : `${attendancePct}%`, color: parseFloat(attendancePct) >= 75 ? [22, 163, 74] : [234, 88, 12] },
+    ];
+    attBoxes.forEach((b, i) => {
+      const bx = margin + i * (boxW + 3);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(bx, y, boxW, 14, 2, 2, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(...b.color);
+      doc.text(b.value, bx + boxW / 2, y + 7, { align: 'center' });
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...slate500);
+      doc.text(b.label.toUpperCase(), bx + boxW / 2, y + 12, { align: 'center' });
+    });
+    y += 18;
+
+    // ── Test Results ───────────────────────────────────────────────────
+    sectionTitle('Test Performance');
+    if (testResults.length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [['Date', 'Subject', 'Marks', 'Grade', 'Percentage']],
+        body: testResults.map(t => [
+          new Date(t.testDate).toLocaleDateString('en-IN'),
+          t.subject,
+          `${t.marks}/${t.totalMarks}`,
+          t.grade,
+          `${((t.marks / t.totalMarks) * 100).toFixed(1)}%`,
+        ]),
+        theme: 'striped',
+        headStyles: { fillColor: primary, fontSize: 8, fontStyle: 'bold' },
+        styles: { fontSize: 8, cellPadding: 2.5 },
+        columnStyles: { 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' } },
+        margin: { left: margin, right: margin },
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    } else {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      doc.setTextColor(...slate500);
+      doc.text('No test records found for this student.', margin, y + 4);
+      y += 10;
+    }
+
+    // ── Footer ─────────────────────────────────────────────────────────
+    const pageH = doc.internal.pageSize.getHeight();
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.line(margin, pageH - 12, pageW - margin, pageH - 12);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...slate500);
+    doc.text(
+      `Generated by Vidhyarthi Hub Admin Panel  •  ${new Date().toLocaleString('en-IN')}`,
+      pageW / 2,
+      pageH - 7,
+      { align: 'center' }
+    );
+
+    // Open PDF in new tab
+    const pdfBlob = doc.output('blob');
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    window.open(pdfUrl, '_blank');
   };
 
   const handlePrintReceipt = (student) => {
@@ -256,13 +499,14 @@ const AdminDashboard = () => {
     }
     
     // Calculate fees
-    const netTuition = student.totalFees - student.discount;
-    const pendingTuition = netTuition - student.paidFees;
-    const netGoodies = student.goodiesTotalFee;
-    const pendingGoodies = netGoodies - student.goodiesPaidFee;
-    const totalOriginal = student.totalFees + student.goodiesTotalFee;
+    const feeInfo = getStudentComputedFee(student);
+    const netTuition = feeInfo.netFee;
+    const pendingTuition = feeInfo.pendingFee;
+    const netGoodies = student.goodiesTotalFee || 0;
+    const pendingGoodies = (student.goodiesTotalFee || 0) - (student.goodiesPaidFee || 0);
+    const totalOriginal = feeInfo.totalFees + (student.goodiesTotalFee || 0);
     const totalNet = netTuition + netGoodies;
-    const totalPaid = student.paidFees + student.goodiesPaidFee;
+    const totalPaid = (student.paidFees || 0) + (student.goodiesPaidFee || 0);
     const totalPending = pendingTuition + pendingGoodies;
     
     // Format dates
@@ -513,6 +757,10 @@ const AdminDashboard = () => {
   const [editingFeeEnglishMonthly, setEditingFeeEnglishMonthly] = useState('');
   const [editingFeeHindiMonthly, setEditingFeeHindiMonthly] = useState('');
 
+  // Quick Fee Deposit states
+  const [quickDepositAmounts, setQuickDepositAmounts] = useState({});
+  const [depositingStudentId, setDepositingStudentId] = useState(null);
+
   // Delete Confirmation Modals state
   const [deleteModal, setDeleteModal] = useState({
     isOpen: false,
@@ -666,10 +914,11 @@ const AdminDashboard = () => {
     // Open blank tab immediately to bypass browser popup blocker
     const win = window.open('about:blank', '_blank');
 
-    const totalFees = Number(student.totalFees) || 0;
-    const paidFees = Number(student.paidFees) || 0;
-    const discount = Number(student.discount) || 0;
-    const pendingFee = Math.max(0, totalFees - paidFees - discount);
+    const feeInfo = getStudentComputedFee(student);
+    const totalFees = feeInfo.totalFees;
+    const paidFees = feeInfo.paidFees;
+    const discount = feeInfo.discount;
+    const pendingFee = feeInfo.pendingFee;
 
     // Fetch current month attendance for student
     let presentDays = 0;
@@ -691,6 +940,10 @@ const AdminDashboard = () => {
       console.warn('Could not fetch student attendance for WhatsApp template:', err.message);
     }
 
+    const feeDescription = feeInfo.isMonthly
+      ? `• Total Fee: ₹${totalFees.toLocaleString('en-IN')} (₹${feeInfo.monthlyFee}/month × ${feeInfo.elapsedMonths} months)`
+      : `• Total Fee: ₹${totalFees.toLocaleString('en-IN')}`;
+
     const message = 
 `🎓 *VIDYARTHI CLASSES KOTA* 🎓
 -------------------------------------
@@ -702,7 +955,7 @@ const AdminDashboard = () => {
 📚 *Class:* ${student.class || 'N/A'}
 
 💰 *FEE DETAILS:*
-• Total Fee: ₹${totalFees.toLocaleString('en-IN')}
+${feeDescription}
 • Paid Fee: ₹${paidFees.toLocaleString('en-IN')}
 • Discount: ₹${discount.toLocaleString('en-IN')}
 • *Pending Fee:* ₹${pendingFee.toLocaleString('en-IN')}
@@ -729,6 +982,7 @@ Thank you!`;
     fatherName: '',
     class: 'Class 10',
     medium: 'English',
+    feeOption: 'English',
     phone: '',
     goodiesStatus: 'Pending',
     discount: 0,
@@ -1608,15 +1862,16 @@ Thank you!`;
     try {
       const structure = await apiFetch(`/api/fees/structure/${studentForm.class}`);
       if (structure) {
+        const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(studentForm.class);
         let fee = 0;
-        if (optionKey === 'English(Y)' || optionKey === 'English') {
-          fee = structure.englishMediumFee || structure.fee || 0;
-        } else if (optionKey === 'English(M)') {
-          fee = structure.englishMediumMonthlyFee || 0;
-        } else if (optionKey === 'Hindi(Y)' || optionKey === 'Hindi') {
-          fee = structure.hindiMediumFee || 0;
-        } else if (optionKey === 'Hindi(M)') {
-          fee = structure.hindiMediumMonthlyFee || 0;
+        if (medium === 'English') {
+          fee = isClass1to7
+            ? (structure.englishMediumMonthlyFee || 0)
+            : (structure.englishMediumFee || structure.fee || 0);
+        } else {
+          fee = isClass1to7
+            ? (structure.hindiMediumMonthlyFee || 0)
+            : (structure.hindiMediumFee || 0);
         }
         setStudentForm((prev) => ({ ...prev, totalFees: fee }));
       }
@@ -1628,18 +1883,24 @@ Thank you!`;
   const handleStudentClassChange = async (className, mediumOverride) => {
     try {
       const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(className);
-      const defaultOption = isClass1to7 ? 'English(Y)' : (mediumOverride ?? studentForm.medium ?? 'English');
-      const medium = defaultOption.startsWith('Hindi') ? 'Hindi' : 'English';
+      const currentMedium = mediumOverride ?? studentForm.medium ?? 'English';
+      const defaultOption = isClass1to7 ? (currentMedium === 'Hindi' ? 'Hindi(M)' : 'English(M)') : currentMedium;
+      const medium = currentMedium;
 
       setStudentForm((prev) => ({ ...prev, class: className, medium, feeOption: defaultOption }));
 
       const structure = await apiFetch(`/api/fees/structure/${className}`);
       if (structure) {
         let fee = 0;
-        if (defaultOption === 'English(Y)' || defaultOption === 'English') fee = structure.englishMediumFee || structure.fee || 0;
-        else if (defaultOption === 'English(M)') fee = structure.englishMediumMonthlyFee || 0;
-        else if (defaultOption === 'Hindi(Y)' || defaultOption === 'Hindi') fee = structure.hindiMediumFee || 0;
-        else if (defaultOption === 'Hindi(M)') fee = structure.hindiMediumMonthlyFee || 0;
+        if (isClass1to7) {
+          fee = medium === 'Hindi'
+            ? (structure.hindiMediumMonthlyFee || 0)
+            : (structure.englishMediumMonthlyFee || 0);
+        } else {
+          fee = medium === 'Hindi'
+            ? (structure.hindiMediumFee || 0)
+            : (structure.englishMediumFee || structure.fee || 0);
+        }
 
         setStudentForm((prev) => ({ ...prev, totalFees: fee }));
       }
@@ -1661,14 +1922,20 @@ Thank you!`;
       const structure = await apiFetch(`/api/fees/structure/${className}`);
       if (structure) {
         currentFormSetter((prev) => {
-          const defaultOption = isClass1to7 ? (prev.feeOption || 'English(Y)') : (mediumOverride ?? prev.medium ?? 'English');
-          const medium = defaultOption.startsWith('Hindi') ? 'Hindi' : 'English';
+          const currentMedium = mediumOverride ?? prev.medium ?? 'English';
+          const defaultOption = isClass1to7 ? (currentMedium === 'Hindi' ? 'Hindi(M)' : 'English(M)') : currentMedium;
+          const medium = currentMedium;
 
           let fee = 0;
-          if (defaultOption === 'English(Y)' || defaultOption === 'English') fee = structure.englishMediumFee || structure.fee || 0;
-          else if (defaultOption === 'English(M)') fee = structure.englishMediumMonthlyFee || 0;
-          else if (defaultOption === 'Hindi(Y)' || defaultOption === 'Hindi') fee = structure.hindiMediumFee || 0;
-          else if (defaultOption === 'Hindi(M)') fee = structure.hindiMediumMonthlyFee || 0;
+          if (isClass1to7) {
+            fee = medium === 'Hindi'
+              ? (structure.hindiMediumMonthlyFee || 0)
+              : (structure.englishMediumMonthlyFee || 0);
+          } else {
+            fee = medium === 'Hindi'
+              ? (structure.hindiMediumFee || 0)
+              : (structure.englishMediumFee || structure.fee || 0);
+          }
 
           return { ...prev, class: className, medium, feeOption: defaultOption, totalFees: fee };
         });
@@ -1708,6 +1975,48 @@ Thank you!`;
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // --- QUICK FEE DEPOSIT HANDLER ---
+  const handleQuickFeeDeposit = async (student) => {
+    const rawVal = quickDepositAmounts[student._id];
+    const amount = parseFloat(rawVal);
+    if (!rawVal || isNaN(amount) || amount <= 0) {
+      showToast('Please enter a valid deposit amount', 'error');
+      return;
+    }
+
+    try {
+      setDepositingStudentId(student._id);
+      const newPaidFees = (student.paidFees || 0) + amount;
+      const newInstallments = [
+        ...(student.installments || []),
+        { date: new Date().toISOString(), amount: amount, method: 'Cash', remarks: 'Quick Deposit' }
+      ];
+
+      await apiFetch(`/api/students/${student._id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          paidFees: newPaidFees,
+          installments: newInstallments
+        })
+      });
+
+      showToast(`₹${amount.toLocaleString()} fee deposited successfully for ${student.name}!`, 'success');
+
+      // Clear input
+      setQuickDepositAmounts((prev) => ({ ...prev, [student._id]: '' }));
+
+      // Refresh all related data
+      fetchStudents();
+      fetchStats();
+      fetchFeeRecords();
+      fetchFeeStructures();
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setDepositingStudentId(null);
     }
   };
 
@@ -1808,14 +2117,19 @@ Thank you!`;
   // Edit class base fee
   const handleSaveClassFee = async (className) => {
     try {
-      if (!editingFeeEnglish && !editingFeeHindi && !editingFeeEnglishMonthly && !editingFeeHindiMonthly) return;
+      const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(className);
+      const engMonthly = parseFloat(editingFeeEnglishMonthly) || 0;
+      const hindiMonthly = parseFloat(editingFeeHindiMonthly) || 0;
+      const engFee = parseFloat(editingFeeEnglish) || 0;
+      const hindiFee = parseFloat(editingFeeHindi) || 0;
+
       await apiFetch(`/api/fees/structure/${className}`, {
         method: 'PUT',
         body: JSON.stringify({
-          englishMediumFee: parseFloat(editingFeeEnglish) || 0,
-          hindiMediumFee: parseFloat(editingFeeHindi) || 0,
-          englishMediumMonthlyFee: parseFloat(editingFeeEnglishMonthly) || 0,
-          hindiMediumMonthlyFee: parseFloat(editingFeeHindiMonthly) || 0
+          englishMediumFee: isClass1to7 ? engMonthly : engFee,
+          hindiMediumFee: isClass1to7 ? hindiMonthly : hindiFee,
+          englishMediumMonthlyFee: isClass1to7 ? engMonthly : engMonthly,
+          hindiMediumMonthlyFee: isClass1to7 ? hindiMonthly : hindiMonthly
         })
       });
       showToast(`Fee for ${className} updated successfully`, 'success');
@@ -2125,6 +2439,7 @@ Thank you!`;
       fatherName: '',
       class: 'Class 10',
       medium: 'English',
+      feeOption: 'English',
       phone: '',
       goodiesStatus: 'Pending',
       discount: 0,
@@ -2328,11 +2643,23 @@ Thank you!`;
   // --- Edit Modals Openers ---
   const openEditStudent = (student) => {
     setEditingStudent(student);
+    const isClass1to7 = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(student.class);
+    const studentMedium = student.medium || 'English';
+    let defaultFeeOption = student.feeOption;
+    if (!defaultFeeOption || (isClass1to7 && defaultFeeOption.includes('(Y)'))) {
+      if (isClass1to7) {
+        defaultFeeOption = studentMedium === 'Hindi' ? 'Hindi(M)' : 'English(M)';
+      } else {
+        defaultFeeOption = studentMedium === 'Hindi' ? 'Hindi' : 'English';
+      }
+    }
+
     setStudentForm({
       name: student.name,
       fatherName: student.fatherName,
       class: student.class,
-      medium: student.medium || 'English',
+      medium: studentMedium,
+      feeOption: defaultFeeOption,
       phone: student.phone,
       goodiesStatus: student.goodiesStatus,
       discount: student.discount,
@@ -2879,13 +3206,15 @@ Thank you!`;
                           <th className="px-6 py-4">Paid Fee</th>
                           <th className="px-6 py-4">Pending Fee</th>
                           <th className="px-6 py-4">Goodies</th>
+                          <th className="px-6 py-4 text-center">Quick Deposit</th>
                           <th className="px-6 py-4 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-xs text-slate-600 font-medium">
                         {filteredStudentsList.map((student) => {
-                          const netFee = student.totalFees - student.discount;
-                          const pendingFee = netFee - student.paidFees;
+                          const feeInfo = getStudentComputedFee(student);
+                          const netFee = feeInfo.netFee;
+                          const pendingFee = feeInfo.pendingFee;
                           return (
                             <tr key={student._id} className="hover:bg-slate-55/30 transition-colors">
                               <td className="px-6 py-4 font-bold text-primary font-stats">
@@ -2896,7 +3225,15 @@ Thank you!`;
                                   </span>
                                 )}
                               </td>
-                              <td className="px-6 py-4 font-bold text-slate-800">{student.name}</td>
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => openStudentProfileModal(student)}
+                                  className="font-bold text-primary hover:text-primary-light hover:underline transition-colors cursor-pointer text-left"
+                                  title="View Student Profile"
+                                >
+                                  {student.name}
+                                </button>
+                              </td>
                               <td className="px-6 py-4">{student.fatherName}</td>
                               <td className="px-6 py-4">
                                 <span className="bg-primary/5 text-primary px-2.5 py-1 rounded-full text-[10px] font-bold">
@@ -2923,7 +3260,16 @@ Thank you!`;
                                 {student.joiningDate ? new Date(student.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : (student.createdAt ? new Date(student.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-')}
                               </td>
                               <td className="px-6 py-4 font-stats">
-                                {student.studentType === 'NotesOnly' ? '-' : `₹${student.totalFees.toLocaleString()}`}
+                                {student.studentType === 'NotesOnly' ? '-' : (
+                                  <div>
+                                    <span className="font-bold">₹{feeInfo.totalFees.toLocaleString()}</span>
+                                    {feeInfo.isMonthly && (
+                                      <span className="block text-[10px] text-slate-400 font-normal">
+                                        ₹{feeInfo.monthlyFee}/mo × {feeInfo.elapsedMonths}m
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-6 py-4 text-emerald-600 font-bold font-stats">
                                 {student.studentType === 'NotesOnly' ? '-' : `₹${student.paidFees.toLocaleString()}`}
@@ -2949,6 +3295,47 @@ Thank you!`;
                                       Paid: ₹{student.goodiesPaidFee} / ₹{student.goodiesTotalFee}
                                     </div>
                                   </>
+                                )}
+                              </td>
+
+                              {/* Quick Deposit Column */}
+                              <td className="px-6 py-4">
+                                {student.studentType === 'NotesOnly' ? (
+                                  <span className="text-slate-400 font-semibold text-center block">-</span>
+                                ) : (
+                                  <div className="flex items-center gap-2 justify-center min-w-[190px]">
+                                    <div className="relative w-36">
+                                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs font-bold">₹</span>
+                                      <input
+                                        type="number"
+                                        placeholder="Deposit amount"
+                                        value={quickDepositAmounts[student._id] || ''}
+                                        onChange={(e) => setQuickDepositAmounts(prev => ({ ...prev, [student._id]: e.target.value }))}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            handleQuickFeeDeposit(student);
+                                          }
+                                        }}
+                                        className="w-full pl-7 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl outline-none text-xs font-bold text-slate-800 placeholder:text-slate-400 placeholder:font-normal focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all shadow-inner"
+                                      />
+                                    </div>
+                                    <button
+                                      onClick={() => handleQuickFeeDeposit(student)}
+                                      disabled={depositingStudentId === student._id}
+                                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-extrabold transition-all shadow-sm hover:shadow flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
+                                      title="Submit Fee Deposit"
+                                    >
+                                      {depositingStudentId === student._id ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                      ) : (
+                                        <>
+                                          <Check className="w-4 h-4" />
+                                          <span>Pay</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
                                 )}
                               </td>
                               <td className="px-6 py-4 flex items-center justify-center gap-2">
@@ -3102,7 +3489,15 @@ Thank you!`;
                             return (
                               <tr key={student._id} className="hover:bg-slate-55/30 transition-colors">
                                 <td className="px-6 py-4 font-bold text-primary font-stats">{student.studentId}</td>
-                                <td className="px-6 py-4 font-bold text-slate-800">{student.name}</td>
+                                <td className="px-6 py-4">
+                                  <button
+                                    onClick={() => openStudentProfileModal(student)}
+                                    className="font-bold text-primary hover:text-primary-light hover:underline transition-colors cursor-pointer text-left"
+                                    title="View Student Profile"
+                                  >
+                                    {student.name}
+                                  </button>
+                                </td>
                                 <td className="px-6 py-4">
                                   <span className="bg-primary/5 text-primary px-2.5 py-1 rounded-full text-[10px] font-bold">
                                     {student.class}
@@ -3230,7 +3625,15 @@ Thank you!`;
                         {alumniStudents.map((student) => (
                           <tr key={student._id} className="hover:bg-slate-55/30 transition-colors">
                             <td className="px-6 py-4 font-bold text-primary font-stats">{student.studentId}</td>
-                            <td className="px-6 py-4 font-semibold text-slate-800">{student.name}</td>
+                            <td className="px-6 py-4">
+                              <button
+                                onClick={() => openStudentProfileModal(student)}
+                                className="font-semibold text-primary hover:text-primary-light hover:underline transition-colors cursor-pointer text-left"
+                                title="View Student Profile"
+                              >
+                                {student.name}
+                              </button>
+                            </td>
                             <td className="px-6 py-4">{student.fatherName}</td>
                             <td className="px-6 py-4">{student.class} ({student.medium})</td>
                             <td className="px-6 py-4 font-stats">{student.phone}</td>
@@ -3525,38 +3928,40 @@ Thank you!`;
                             <td className="px-6 py-4">
                               {editingFeeClass === structure.class ? (
                                 <div className="space-y-1.5 max-w-[150px]">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-                                    <span className="text-slate-400">₹</span>
-                                    <input
-                                      type="number"
-                                      value={editingFeeEnglish}
-                                      onChange={(e) => setEditingFeeEnglish(e.target.value)}
-                                      className="w-full border border-emerald-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-emerald-400"
-                                      placeholder="Total fee"
-                                      autoFocus
-                                    />
-                                  </div>
-                                  {isClass1to7 && (
-                                    <div className="flex items-center gap-1 text-[10px]">
-                                      <span className="text-slate-400 shrink-0 font-medium">Monthly: ₹</span>
+                                  {isClass1to7 ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                                      <span className="text-slate-400">₹</span>
                                       <input
                                         type="number"
                                         value={editingFeeEnglishMonthly}
                                         onChange={(e) => setEditingFeeEnglishMonthly(e.target.value)}
-                                        className="w-full border border-emerald-200 rounded px-1.5 py-0.5 outline-none text-[10px] focus:ring-1 focus:ring-emerald-400"
+                                        className="w-full border border-emerald-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-emerald-400 font-semibold"
                                         placeholder="Monthly fee"
+                                        autoFocus
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+                                      <span className="text-slate-400">₹</span>
+                                      <input
+                                        type="number"
+                                        value={editingFeeEnglish}
+                                        onChange={(e) => setEditingFeeEnglish(e.target.value)}
+                                        className="w-full border border-emerald-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-emerald-400 font-semibold"
+                                        placeholder="Total fee"
+                                        autoFocus
                                       />
                                     </div>
                                   )}
                                 </div>
                               ) : (
                                 <div>
-                                  <span className="font-stats text-emerald-700 font-bold">₹{(structure.englishMediumFee || 0).toLocaleString()}</span>
-                                  {isClass1to7 && (
-                                    <div className="text-[10px] text-emerald-600 font-bold mt-0.5 font-stats">
-                                      Monthly: ₹{(structure.englishMediumMonthlyFee || 0).toLocaleString()}
-                                    </div>
+                                  {isClass1to7 ? (
+                                    <span className="font-stats text-emerald-700 font-bold">₹{(structure.englishMediumMonthlyFee || 0).toLocaleString()} <span className="text-[10px] font-normal text-slate-400">/ mo</span></span>
+                                  ) : (
+                                    <span className="font-stats text-emerald-700 font-bold">₹{(structure.englishMediumFee || 0).toLocaleString()}</span>
                                   )}
                                 </div>
                               )}
@@ -3566,37 +3971,38 @@ Thank you!`;
                             <td className="px-6 py-4">
                               {editingFeeClass === structure.class ? (
                                 <div className="space-y-1.5 max-w-[150px]">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
-                                    <span className="text-slate-400">₹</span>
-                                    <input
-                                      type="number"
-                                      value={editingFeeHindi}
-                                      onChange={(e) => setEditingFeeHindi(e.target.value)}
-                                      className="w-full border border-indigo-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-indigo-400"
-                                      placeholder="Total fee"
-                                    />
-                                  </div>
-                                  {isClass1to7 && (
-                                    <div className="flex items-center gap-1 text-[10px]">
-                                      <span className="text-slate-400 shrink-0 font-medium">Monthly: ₹</span>
+                                  {isClass1to7 ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
+                                      <span className="text-slate-400">₹</span>
                                       <input
                                         type="number"
                                         value={editingFeeHindiMonthly}
                                         onChange={(e) => setEditingFeeHindiMonthly(e.target.value)}
-                                        className="w-full border border-indigo-200 rounded px-1.5 py-0.5 outline-none text-[10px] focus:ring-1 focus:ring-indigo-400"
+                                        className="w-full border border-indigo-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-indigo-400 font-semibold"
                                         placeholder="Monthly fee"
+                                      />
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0"></span>
+                                      <span className="text-slate-400">₹</span>
+                                      <input
+                                        type="number"
+                                        value={editingFeeHindi}
+                                        onChange={(e) => setEditingFeeHindi(e.target.value)}
+                                        className="w-full border border-indigo-300 rounded px-2.5 py-1 outline-none text-xs focus:ring-1 focus:ring-indigo-400 font-semibold"
+                                        placeholder="Total fee"
                                       />
                                     </div>
                                   )}
                                 </div>
                               ) : (
                                 <div>
-                                  <span className="font-stats text-indigo-700 font-bold">₹{(structure.hindiMediumFee || 0).toLocaleString()}</span>
-                                  {isClass1to7 && (
-                                    <div className="text-[10px] text-indigo-600 font-bold mt-0.5 font-stats">
-                                      Monthly: ₹{(structure.hindiMediumMonthlyFee || 0).toLocaleString()}
-                                    </div>
+                                  {isClass1to7 ? (
+                                    <span className="font-stats text-indigo-700 font-bold">₹{(structure.hindiMediumMonthlyFee || 0).toLocaleString()} <span className="text-[10px] font-normal text-slate-400">/ mo</span></span>
+                                  ) : (
+                                    <span className="font-stats text-indigo-700 font-bold">₹{(structure.hindiMediumFee || 0).toLocaleString()}</span>
                                   )}
                                 </div>
                               )}
@@ -5986,57 +6392,31 @@ Thank you!`;
                 <div className="space-y-1 sm:col-span-2">
                   <label className="font-bold text-slate-500 uppercase tracking-wider block">Medium / Fee Plan *</label>
                   {['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7'].includes(studentForm.class) ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 gap-3">
                       <button
                         type="button"
-                        onClick={() => handleFeeOptionSelect('English(Y)')}
-                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
-                          studentForm.medium === 'English' && (studentForm.feeOption === 'English(Y)' || !studentForm.feeOption || studentForm.feeOption === 'English')
+                        onClick={() => handleFeeOptionSelect('English(M)')}
+                        className={`p-3 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
+                          studentForm.medium === 'English'
                             ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300/50'
                             : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
                         }`}
                       >
-                        <span className="flex items-center gap-1">🇬🇧 English(Y)</span>
-                        <span className="text-[9px] opacity-80 font-normal">Yearly Fee</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleFeeOptionSelect('English(M)')}
-                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
-                          studentForm.medium === 'English' && studentForm.feeOption === 'English(M)'
-                            ? 'bg-emerald-700 text-white border-emerald-700 shadow-md ring-2 ring-emerald-300/50'
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-emerald-50 hover:text-emerald-700'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1">🇬🇧 English(M)</span>
-                        <span className="text-[9px] opacity-80 font-normal">Monthly Fee</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleFeeOptionSelect('Hindi(Y)')}
-                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
-                          studentForm.medium === 'Hindi' && (studentForm.feeOption === 'Hindi(Y)' || !studentForm.feeOption || studentForm.feeOption === 'Hindi')
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-300/50'
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'
-                        }`}
-                      >
-                        <span className="flex items-center gap-1">🇮🇳 Hindi(Y)</span>
-                        <span className="text-[9px] opacity-80 font-normal">Yearly Fee</span>
+                        <span className="flex items-center gap-1.5 text-sm">🇬🇧 English</span>
+                        <span className="text-[10px] opacity-80 font-normal">Monthly Fee</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleFeeOptionSelect('Hindi(M)')}
-                        className={`p-2.5 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
-                          studentForm.medium === 'Hindi' && studentForm.feeOption === 'Hindi(M)'
-                            ? 'bg-indigo-700 text-white border-indigo-700 shadow-md ring-2 ring-indigo-300/50'
+                        className={`p-3 rounded-xl text-xs font-extrabold flex flex-col items-center justify-center gap-0.5 border transition-all duration-200 cursor-pointer ${
+                          studentForm.medium === 'Hindi'
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-md ring-2 ring-indigo-300/50'
                             : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-indigo-50 hover:text-indigo-700'
                         }`}
                       >
-                        <span className="flex items-center gap-1">🇮🇳 Hindi(M)</span>
-                        <span className="text-[9px] opacity-80 font-normal">Monthly Fee</span>
+                        <span className="flex items-center gap-1.5 text-sm">🇮🇳 Hindi</span>
+                        <span className="text-[10px] opacity-80 font-normal">Monthly Fee</span>
                       </button>
                     </div>
                   ) : (
@@ -6067,7 +6447,7 @@ Thank you!`;
                   )}
                   {studentForm.medium && (
                     <p className="text-[10px] text-slate-400 mt-1">
-                      Selected Plan: <span className="font-bold text-slate-700">{studentForm.feeOption || studentForm.medium}</span> | Auto-filled fee: <span className="font-bold text-primary">₹{studentForm.totalFees.toLocaleString()}</span>
+                      Selected Medium: <span className="font-bold text-slate-700">{studentForm.medium}</span> | Total Fee Amount: <span className="font-bold text-primary">₹{studentForm.totalFees.toLocaleString()}</span>
                     </p>
                   )}
                 </div>
@@ -8717,6 +9097,236 @@ Thank you!`;
         onConfirm={deleteModal.onConfirm}
         onCancel={closeDeleteModal}
       />
+
+      {/* ===================== STUDENT PROFILE MODAL ===================== */}
+      {isStudentProfileModalOpen && profileStudent && (() => {
+        const s = profileStudent;
+        const feeInfo = getStudentComputedFee(s);
+        const netFee = feeInfo.netFee;
+        const pendingFee = feeInfo.pendingFee;
+        const presentCount = profileAttendanceHistory.filter(r => r.status === 'present').length;
+        const absentCount = profileAttendanceHistory.filter(r => r.status === 'absent').length;
+        const holidayCount = profileAttendanceHistory.filter(r => r.status === 'holiday').length;
+        const totalMarked = presentCount + absentCount;
+        const attendancePct = totalMarked > 0 ? ((presentCount / totalMarked) * 100).toFixed(1) : null;
+        return (
+          <div
+            className="fixed inset-0 z-[80] flex items-start justify-center p-4 pt-10 overflow-y-auto"
+            style={{ background: 'rgba(15,23,42,0.65)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setIsStudentProfileModalOpen(false)}
+          >
+            <div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-100 relative mb-10"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between p-6 pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/10">
+                    <span className="text-2xl font-black text-primary">
+                      {s.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-extrabold text-slate-800 leading-tight">{s.name}</h2>
+                    <p className="text-xs text-slate-400 font-medium mt-0.5">
+                      ID: <span className="font-bold text-primary">{s.studentId}</span> &bull; {s.class} &bull; {s.medium}
+                    </p>
+                    {s.studentType === 'NotesOnly' && (
+                      <span className="inline-block mt-1 bg-amber-50 text-secondary border border-amber-200/50 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md">
+                        Notes Student
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!profileLoading && (
+                    <button
+                      onClick={() => handlePrintParentsReport(s, profileAttendanceHistory, profileTestResults)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary-light transition-colors cursor-pointer shadow-md"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Print Report
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setIsStudentProfileModalOpen(false)}
+                    className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {profileLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <span className="ml-3 text-slate-500 text-sm font-medium">Loading student data...</span>
+                </div>
+              ) : (
+                <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+
+                  {/* Personal Info */}
+                  <div>
+                    <h3 className="text-[11px] font-extrabold text-primary uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5" /> Personal Information
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { label: "Father's Name", value: s.fatherName || '—' },
+                        { label: 'Phone', value: s.phone || '—' },
+                        { label: 'Address', value: s.address || '—' },
+                        { label: 'Joining Date', value: s.joiningDate ? new Date(s.joiningDate).toLocaleDateString('en-IN') : '—' },
+                      ].map(item => (
+                        <div key={item.label} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">{item.label}</p>
+                          <p className="text-xs font-bold text-slate-700 mt-0.5 break-words">{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Fee Summary */}
+                  <div>
+                    <h3 className="text-[11px] font-extrabold text-primary uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <Coins className="w-3.5 h-3.5" /> Fee Summary
+                    </h3>
+                    <div className="grid grid-cols-4 gap-3 mb-3">
+                      <div className="text-center bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-base font-black text-emerald-600">₹{netFee.toLocaleString()}</p>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">
+                          {feeInfo.isMonthly ? `Total Fee (${feeInfo.elapsedMonths} mo)` : 'Total Fee'}
+                        </p>
+                        {feeInfo.isMonthly && (
+                          <p className="text-[9px] text-slate-400 font-semibold mt-0.5">
+                            ₹{feeInfo.monthlyFee}/month
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-center bg-blue-50 rounded-xl p-3 border border-blue-100">
+                        <p className="text-base font-black text-blue-600">₹{(s.discount || 0).toLocaleString()}</p>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Discount</p>
+                      </div>
+                      <div className="text-center bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                        <p className="text-base font-black text-emerald-600">₹{(s.paidFees || 0).toLocaleString()}</p>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Paid</p>
+                      </div>
+                      <div className={`text-center rounded-xl p-3 border ${pendingFee > 0 ? 'bg-orange-50 border-orange-100' : 'bg-emerald-50 border-emerald-100'}`}>
+                        <p className={`text-base font-black ${pendingFee > 0 ? 'text-orange-600' : 'text-emerald-600'}`}>₹{pendingFee.toLocaleString()}</p>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Pending</p>
+                      </div>
+                    </div>
+                    {(s.installments || []).length > 0 ? (
+                      <div className="rounded-xl border border-slate-100 overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-[10px] text-slate-400 font-bold uppercase">
+                            <tr>
+                              <th className="px-3 py-2 text-left">#</th>
+                              <th className="px-3 py-2 text-left">Amount</th>
+                              <th className="px-3 py-2 text-left">Date</th>
+                              <th className="px-3 py-2 text-left">Mode</th>
+                              <th className="px-3 py-2 text-left">Note</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {s.installments.map((inst, i) => (
+                              <tr key={i} className="hover:bg-slate-50/50">
+                                <td className="px-3 py-2 text-slate-400 font-bold">{i + 1}</td>
+                                <td className="px-3 py-2 font-bold text-emerald-600">₹{(inst.amount || 0).toLocaleString()}</td>
+                                <td className="px-3 py-2 text-slate-600">{inst.paidDate ? new Date(inst.paidDate).toLocaleDateString('en-IN') : '—'}</td>
+                                <td className="px-3 py-2 text-slate-600">{inst.mode || '—'}</td>
+                                <td className="px-3 py-2 text-slate-500">{inst.note || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-xl">No installment records found.</p>
+                    )}
+                  </div>
+
+                  {/* Attendance */}
+                  <div>
+                    <h3 className="text-[11px] font-extrabold text-primary uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" /> Attendance
+                    </h3>
+                    {profileAttendanceHistory.length === 0 ? (
+                      <p className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-xl">No attendance records found.</p>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-3 mb-3">
+                        <div className="text-center bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                          <p className="text-base font-black text-emerald-600">{presentCount}</p>
+                          <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Present</p>
+                        </div>
+                        <div className="text-center bg-red-50 rounded-xl p-3 border border-red-100">
+                          <p className="text-base font-black text-red-500">{absentCount}</p>
+                          <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Absent</p>
+                        </div>
+                        <div className="text-center bg-slate-50 rounded-xl p-3 border border-slate-100">
+                          <p className="text-base font-black text-slate-500">{holidayCount}</p>
+                          <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Holiday</p>
+                        </div>
+                        <div className={`text-center rounded-xl p-3 border ${attendancePct !== null && parseFloat(attendancePct) >= 75 ? 'bg-emerald-50 border-emerald-100' : 'bg-orange-50 border-orange-100'}`}>
+                          <p className={`text-base font-black ${attendancePct !== null && parseFloat(attendancePct) >= 75 ? 'text-emerald-600' : 'text-orange-500'}`}>
+                            {attendancePct !== null ? `${attendancePct}%` : 'N/A'}
+                          </p>
+                          <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">Attendance %</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Test Results */}
+                  <div>
+                    <h3 className="text-[11px] font-extrabold text-primary uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                      <Award className="w-3.5 h-3.5" /> Test Performance
+                    </h3>
+                    {profileTestResults.length === 0 ? (
+                      <p className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-xl">No test records found for this student.</p>
+                    ) : (
+                      <div className="rounded-xl border border-slate-100 overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-[10px] text-slate-400 font-bold uppercase">
+                            <tr>
+                              <th className="px-3 py-2 text-left">Date</th>
+                              <th className="px-3 py-2 text-left">Subject</th>
+                              <th className="px-3 py-2 text-center">Marks</th>
+                              <th className="px-3 py-2 text-center">Grade</th>
+                              <th className="px-3 py-2 text-center">%</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {profileTestResults.map((t, i) => {
+                              const pct = ((t.marks / t.totalMarks) * 100).toFixed(1);
+                              const gradeColor = t.grade === 'A+' || t.grade === 'A'
+                                ? 'text-emerald-600 bg-emerald-50 border-emerald-200'
+                                : t.grade === 'B'
+                                  ? 'text-blue-600 bg-blue-50 border-blue-200'
+                                  : 'text-red-600 bg-red-50 border-red-200';
+                              return (
+                                <tr key={i} className="hover:bg-slate-50/50">
+                                  <td className="px-3 py-2 text-slate-500">{new Date(t.testDate).toLocaleDateString('en-IN')}</td>
+                                  <td className="px-3 py-2 font-semibold text-slate-700">{t.subject}</td>
+                                  <td className="px-3 py-2 text-center font-bold text-slate-700">{t.marks}/{t.totalMarks}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${gradeColor}`}>{t.grade}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-center font-bold text-slate-600">{pct}%</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
 
     </div>

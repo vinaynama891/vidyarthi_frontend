@@ -28,6 +28,7 @@ import {
 import logo from '../../assets/logo.png';
 import paymentQr from '../../assets/payment_qr.png';
 import SecureViewerModal from '../../components/SecureViewerModal';
+import { getStudentComputedFee, isClass1to7 } from '../../utils/feeUtils';
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
@@ -299,9 +300,8 @@ const StudentDashboard = () => {
       setSubmittingPayment(true);
 
       // Calculate pending fee balance
-      const netFees = profile.totalFees - profile.discount;
-      const currentPending = netFees - profile.paidFees;
-      const remainingPending = Math.max(0, currentPending - Number(amountPaid));
+      const feeInfo = getStudentComputedFee(profile);
+      const remainingPending = Math.max(0, feeInfo.pendingFee - Number(amountPaid));
 
       // 1. Submit to backend database/API
       const res = await apiFetch('/api/students/report-payment', {
@@ -352,13 +352,14 @@ Please verify the transaction and update my receipt. Thank you!`;
     }
     
     // Calculate fees
-    const netTuition = student.totalFees - student.discount;
-    const pendingTuition = netTuition - student.paidFees;
-    const netGoodies = student.goodiesTotalFee;
-    const pendingGoodies = netGoodies - student.goodiesPaidFee;
-    const totalOriginal = student.totalFees + student.goodiesTotalFee;
+    const feeInfo = getStudentComputedFee(student);
+    const netTuition = feeInfo.netFee;
+    const pendingTuition = feeInfo.pendingFee;
+    const netGoodies = student.goodiesTotalFee || 0;
+    const pendingGoodies = (student.goodiesTotalFee || 0) - (student.goodiesPaidFee || 0);
+    const totalOriginal = feeInfo.totalFees + (student.goodiesTotalFee || 0);
     const totalNet = netTuition + netGoodies;
-    const totalPaid = student.paidFees + student.goodiesPaidFee;
+    const totalPaid = (student.paidFees || 0) + (student.goodiesPaidFee || 0);
     const totalPending = pendingTuition + pendingGoodies;
     
     // Format dates
@@ -682,8 +683,9 @@ Please verify the transaction and update my receipt. Thank you!`;
     );
   }
 
-  const netFeePayable = profile.totalFees - profile.discount;
-  const pendingFeeBalance = netFeePayable - profile.paidFees;
+  const studentFeeInfo = getStudentComputedFee(profile);
+  const netFeePayable = studentFeeInfo.netFee;
+  const pendingFeeBalance = studentFeeInfo.pendingFee;
 
   // Calculate calendar elements
   const { totalDays, adjustedFirstDay } = getDaysInMonth(currentDate);
@@ -1047,9 +1049,7 @@ Please verify the transaction and update my receipt. Thank you!`;
                   </button>
                   <button
                     onClick={() => {
-                      const netFees = profile.totalFees - profile.discount;
-                      const pending = netFees - profile.paidFees;
-                      setAmountPaid(pending > 0 ? pending.toString() : '');
+                      setAmountPaid(pendingFeeBalance > 0 ? pendingFeeBalance.toString() : '');
                       setPayStep(1);
                       setIsPayOnlineModalOpen(true);
                     }}
@@ -1064,8 +1064,15 @@ Please verify the transaction and update my receipt. Thank you!`;
               {/* Grid of details */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
-                  <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider">Tuition Base Fee</span>
-                  <span className="text-lg font-bold font-stats text-primary mt-1 block">₹{profile.totalFees.toLocaleString()}</span>
+                  <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider">
+                    {studentFeeInfo.isMonthly ? `Tuition Fee (${studentFeeInfo.elapsedMonths} mo)` : 'Tuition Base Fee'}
+                  </span>
+                  <span className="text-lg font-bold font-stats text-primary mt-1 block">₹{studentFeeInfo.totalFees.toLocaleString()}</span>
+                  {studentFeeInfo.isMonthly && (
+                    <span className="text-[10px] text-slate-400 font-semibold mt-0.5 block">
+                      ₹{studentFeeInfo.monthlyFee}/month
+                    </span>
+                  )}
                 </div>
                 <div className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
                   <span className="text-[9px] text-slate-400 font-bold uppercase block tracking-wider">Scholarship / Discount</span>
@@ -1524,13 +1531,14 @@ Please verify the transaction and update my receipt. Thank you!`;
       {/* Receipt Modal Preview */}
       {isReceiptModalOpen && (() => {
         const student = profile;
-        const netTuition = student.totalFees - student.discount;
-        const pendingTuition = netTuition - student.paidFees;
-        const netGoodies = student.goodiesTotalFee;
-        const pendingGoodies = netGoodies - student.goodiesPaidFee;
-        const totalOriginal = student.totalFees + student.goodiesTotalFee;
+        const feeInfo = getStudentComputedFee(student);
+        const netTuition = feeInfo.netFee;
+        const pendingTuition = feeInfo.pendingFee;
+        const netGoodies = student.goodiesTotalFee || 0;
+        const pendingGoodies = (student.goodiesTotalFee || 0) - (student.goodiesPaidFee || 0);
+        const totalOriginal = feeInfo.totalFees + (student.goodiesTotalFee || 0);
         const totalNet = netTuition + netGoodies;
-        const totalPaid = student.paidFees + student.goodiesPaidFee;
+        const totalPaid = (student.paidFees || 0) + (student.goodiesPaidFee || 0);
         const totalPending = pendingTuition + pendingGoodies;
         
         const today = new Date().toLocaleDateString('en-IN');
